@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XTools接入架构泳道全景图</title>
+<style>
+  @page { size: A3 landscape; margin: 10mm; }
+  html, body { margin: 0; background: #ffffff; color: #1f2937; font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", sans-serif; }
+  .wrap { padding: 16px 20px; max-width: 1760px; margin: 0 auto; }
+  figure { margin: 0; }
+  svg { width: 100%; height: auto; display: block; border: 1px solid #e5e7eb; }
+  figcaption { font-size: 12.5px; color: #6b7280; margin-top: 10px; line-height: 1.6; }
+  h2 { font-size: 15px; margin: 18px 0 6px; }
+  table { border-collapse: collapse; font-size: 12px; width: 100%; }
+  th, td { border: 1px solid #d1d5db; padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #f3f4f6; }
+  @media print { .wrap { padding: 0; } svg { border: none; } .notes { page-break-before: always; break-before: page; } table { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1720 1060" role="img" aria-label="XTools CRM 接入架构泳道全景图：CRM 开放接口、接入层、同步层、存储层、应用层、监控运维六个泳道，以及登录、读取、字典、写回、监控五条链路与 P0–P4 阶段" font-family="'Noto Sans CJK SC','PingFang SC','Microsoft YaHei','Source Han Sans SC',sans-serif">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937"/></marker>
+<marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b4530a"/></marker>
+</defs>
+<rect x="0" y="60" width="1720" height="140" fill="#f5f7fa" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="60" width="160" height="140" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="80.0" y="126.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">XTools CRM（超兔）</text>
+<text x="80.0" y="144.0" text-anchor="middle" font-size="11" fill="#6b7280">OPEN API · crm.xtcrm.com</text>
+<rect x="0" y="200" width="1720" height="140" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="200" width="160" height="140" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="80.0" y="266.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">接入层</text>
+<text x="80.0" y="284.0" text-anchor="middle" font-size="11" fill="#6b7280">xtools 客户端（已完成）</text>
+<rect x="0" y="340" width="1720" height="140" fill="#f5f7fa" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="340" width="160" height="140" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="80.0" y="406.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">同步层</text>
+<text x="80.0" y="424.0" text-anchor="middle" font-size="11" fill="#6b7280">调度 · 游标 · 写回处理</text>
+<rect x="0" y="480" width="1720" height="140" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="480" width="160" height="140" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="80.0" y="546.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">存储层</text>
+<text x="80.0" y="564.0" text-anchor="middle" font-size="11" fill="#6b7280">本地镜像库</text>
+<rect x="0" y="620" width="1720" height="140" fill="#f5f7fa" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="620" width="160" height="140" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="80.0" y="686.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">应用层</text>
+<text x="80.0" y="704.0" text-anchor="middle" font-size="11" fill="#6b7280">报表 / 工具 / 业务变更</text>
+<rect x="0" y="760" width="1720" height="140" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="760" width="160" height="140" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="80.0" y="826.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">监控与运维</text>
+<text x="80.0" y="844.0" text-anchor="middle" font-size="11" fill="#6b7280">日志 · 告警 · 对账 · 凭证</text>
+<text x="160" y="30" font-size="20" font-weight="700" fill="#1f2937">XTools CRM 接入架构泳道全景图</text>
+<text x="160" y="50" font-size="12" fill="#6b7280">麦可旺志 Microwants · xtools 优化项目 · 首批模块：客户与联系人 / 订单与发货 / 产品与库存 / 财务 · 2026-09-11</text>
+<rect x="190" y="92" width="230" height="74" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="305.0" y="112" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">user.login</text>
+<text x="305.0" y="129" text-anchor="middle" font-size="11.5" fill="#6b7280">登录换取 sid</text>
+<text x="305.0" y="146" text-anchor="middle" font-size="11.5" fill="#6b7280">10 秒内只能调用一次（30103）</text>
+<rect x="470" y="92" width="300" height="74" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="620.0" y="112" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">api.output 读取</text>
+<text x="620.0" y="129" text-anchor="middle" font-size="11.5" fill="#6b7280">lastid / id / lasttime / 编号过滤</text>
+<text x="620.0" y="146" text-anchor="middle" font-size="11.5" fill="#6b7280">每页至多 100 条；extend=1 扩展字段</text>
+<rect x="960" y="92" width="300" height="74" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1110.0" y="112" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">api.input / api.update / api.cmdact</text>
+<text x="1110.0" y="129" text-anchor="middle" font-size="11.5" fill="#6b7280">写入 · 修改 · 动作 · api.chgown</text>
+<text x="1110.0" y="146" text-anchor="middle" font-size="11.5" fill="#6b7280">返回 ret.ok / msg / id</text>
+<rect x="1410" y="92" width="250" height="74" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1535.0" y="112" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">api.fieldinfo</text>
+<text x="1535.0" y="129" text-anchor="middle" font-size="11.5" fill="#6b7280">数据字典 field · 字段名 dbcn</text>
+<text x="1535.0" y="146" text-anchor="middle" font-size="11.5" fill="#6b7280">人员对照 pr2nm</text>
+<rect x="470" y="66" width="1190" height="20" rx="4" fill="#ffffff" stroke="#c7d2e3" stroke-dasharray="3 3"/>
+<text x="1065" y="80" text-anchor="middle" font-size="11" fill="#6b7280">首批数据表：customer · customerext · contract · sendgoods · libout · libin · sr_notice · product · csstree · prod_alias · gathering · gathering_note · bill · pay_plan · purchase</text>
+<rect x="190" y="232" width="230" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="305.0" y="252" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">登录管理</text>
+<text x="305.0" y="269" text-anchor="middle" font-size="11.5" fill="#6b7280">sid 文件缓存（30 分钟为准）</text>
+<text x="305.0" y="286" text-anchor="middle" font-size="11.5" fill="#6b7280">20101/20102 → 自动重登重试</text>
+<text x="305.0" y="303" text-anchor="middle" font-size="11.5" fill="#6b7280">30103 → 等待 10 秒</text>
+<rect x="470" y="232" width="300" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="620.0" y="252" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">读取封装 output / iter_output</text>
+<text x="620.0" y="269" text-anchor="middle" font-size="11.5" fill="#6b7280">签名 md = md5(param+stamp+upr+cmd+appkey)</text>
+<text x="620.0" y="286" text-anchor="middle" font-size="11.5" fill="#6b7280">网络错误重试 3 次；按 lastid 翻页</text>
+<rect x="960" y="232" width="300" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1110.0" y="252" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">写入封装 input / update / cmdact</text>
+<text x="1110.0" y="269" text-anchor="middle" font-size="11.5" fill="#6b7280">同一签名规则；不自动重发</text>
+<text x="1110.0" y="286" text-anchor="middle" font-size="11.5" fill="#6b7280">ret.ok=0 → XToolsBusinessError</text>
+<rect x="1410" y="232" width="250" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1535.0" y="252" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">字典封装</text>
+<text x="1535.0" y="269" text-anchor="middle" font-size="11.5" fill="#6b7280">dictionary / field_names / users</text>
+<text x="1535.0" y="286" text-anchor="middle" font-size="11.5" fill="#6b7280">日志脱敏（appkey / comkey / sid）</text>
+<rect x="450" y="372" width="300" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="600.0" y="392" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">调度器（单进程串行）</text>
+<text x="600.0" y="409" text-anchor="middle" font-size="11.5" fill="#6b7280">customer / product：lasttime 增量</text>
+<text x="600.0" y="426" text-anchor="middle" font-size="11.5" fill="#6b7280">contract 等：lastid 新增 + 活动单据重拉</text>
+<rect x="770" y="372" width="170" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="855.0" y="392" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">游标表 sync_state</text>
+<text x="855.0" y="409" text-anchor="middle" font-size="11.5" fill="#6b7280">dt · lastid · lasttime</text>
+<text x="855.0" y="426" text-anchor="middle" font-size="11.5" fill="#6b7280">last_run · 行数</text>
+<rect x="960" y="372" width="300" height="76" rx="6" ry="6" fill="#ffffff" stroke="#b4530a" stroke-width="1.2"/>
+<text x="1110.0" y="392" text-anchor="middle" font-size="13" font-weight="600" fill="#b4530a">写回处理器</text>
+<text x="1110.0" y="409" text-anchor="middle" font-size="11.5" fill="#6b7280">查重（sn / No. / memo）→ 提交</text>
+<text x="1110.0" y="426" text-anchor="middle" font-size="11.5" fill="#6b7280">→ 回读确认 → 标记完成</text>
+<rect x="1410" y="372" width="250" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1535.0" y="392" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">字典缓存（每日刷新）</text>
+<text x="1535.0" y="409" text-anchor="middle" font-size="11.5" fill="#6b7280">枚举 key↔value · part↔姓名</text>
+<text x="1535.0" y="426" text-anchor="middle" font-size="11.5" fill="#6b7280">读写不对称字段的双向转换</text>
+<rect x="470" y="512" width="220" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="580.0" y="532" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">原始 JSON 表</text>
+<text x="580.0" y="549" text-anchor="middle" font-size="11.5" fill="#6b7280">按 dt + id 主键去重合并</text>
+<text x="580.0" y="566" text-anchor="middle" font-size="11.5" fill="#6b7280">fetched_at · source_hash</text>
+<rect x="720" y="512" width="220" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="830.0" y="532" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">规范化表</text>
+<text x="830.0" y="549" text-anchor="middle" font-size="11.5" fill="#6b7280">customer · contact · contract · goods</text>
+<text x="830.0" y="566" text-anchor="middle" font-size="11.5" fill="#6b7280">product · gathering · bill …</text>
+<rect x="960" y="512" width="300" height="76" rx="6" ry="6" fill="#ffffff" stroke="#b4530a" stroke-width="1.2"/>
+<text x="1110.0" y="532" text-anchor="middle" font-size="13" font-weight="600" fill="#b4530a">写回队列 writeback_queue</text>
+<text x="1110.0" y="549" text-anchor="middle" font-size="11.5" fill="#6b7280">业务类型 · 目标 dt · data · 我方唯一键</text>
+<text x="1110.0" y="566" text-anchor="middle" font-size="11.5" fill="#6b7280">状态：待提交 / 已提交 / 已确认 / 失败</text>
+<rect x="1410" y="512" width="250" height="76" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1535.0" y="532" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">对账结果表</text>
+<text x="1535.0" y="549" text-anchor="middle" font-size="11.5" fill="#6b7280">每日：镜像行数 vs CRM 扫描行数</text>
+<text x="1535.0" y="566" text-anchor="middle" font-size="11.5" fill="#6b7280">抽样字段差异，保留 30 天</text>
+<rect x="470" y="654" width="470" height="70" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="705.0" y="674" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">报表 / 查询工具 / 自动化</text>
+<text x="705.0" y="691" text-anchor="middle" font-size="11.5" fill="#6b7280">只读镜像上运行，不直接访问 CRM</text>
+<rect x="960" y="654" width="300" height="70" rx="6" ry="6" fill="#ffffff" stroke="#b4530a" stroke-width="1.2"/>
+<text x="1110.0" y="674" text-anchor="middle" font-size="13" font-weight="600" fill="#b4530a">业务变更</text>
+<text x="1110.0" y="691" text-anchor="middle" font-size="11.5" fill="#6b7280">新建客户、下单、发货登记、回款登记 …</text>
+<rect x="470" y="794" width="470" height="70" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="705.0" y="814" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">运行日志与告警</text>
+<text x="705.0" y="831" text-anchor="middle" font-size="11.5" fill="#6b7280">登录失败 · 签名错误 · 业务错误率 · 增量停滞 · 对账差异</text>
+<rect x="960" y="794" width="300" height="70" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1110.0" y="814" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">凭证管理</text>
+<text x="1110.0" y="831" text-anchor="middle" font-size="11.5" fill="#6b7280">.env / 密钥管理；appkey 定期轮换</text>
+<rect x="1410" y="794" width="250" height="70" rx="6" ry="6" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1535.0" y="814" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">对账任务（每日）</text>
+<text x="1535.0" y="831" text-anchor="middle" font-size="11.5" fill="#6b7280">经接入层按 lastid 扫描 CRM 计数</text>
+<path d="M 265.0,232 L 265.0,166" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="259.0" y="199.0" text-anchor="end" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">登录请求</text>
+<path d="M 345.0,166 L 345.0,232" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="351.0" y="199.0" text-anchor="start" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">sid</text>
+<path d="M 470,270.0 L 420,270.0" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="445.0" y="264.0" text-anchor="middle" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">取 sid / 失效重登</text>
+<path d="M 540.0,372 L 560.0,308" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="544.0" y="340.0" text-anchor="end" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">按游标拉取</text>
+<path d="M 560.0,232 L 560.0,166" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="554.0" y="199.0" text-anchor="end" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">签名请求</text>
+<path d="M 680.0,166 L 680.0,232" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="686.0" y="199.0" text-anchor="start" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">JSON ≤100 条/页</text>
+<path d="M 680.0,308 L 660.0,372" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="676.0" y="340.0" text-anchor="start" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">记录列表</text>
+<path d="M 750,410.0 L 770,410.0" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="760.0" y="404.0" text-anchor="middle" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">读 / 更新游标</text>
+<path d="M 570.0,448 L 550.0,512" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="554.0" y="480.0" text-anchor="end" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">落库</text>
+<path d="M 690,550.0 L 720,550.0" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="705.0" y="544.0" text-anchor="middle" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">派生</text>
+<path d="M 830.0,588 L 705.0,654" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="773.5" y="621.0" text-anchor="start" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">查询</text>
+<path d="M 1485.0,232 L 1485.0,166" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1479.0" y="199.0" text-anchor="end" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">签名请求</text>
+<path d="M 1585.0,166 L 1585.0,232" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1591.0" y="199.0" text-anchor="start" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">字典 JSON</text>
+<path d="M 1535.0,308 L 1535.0,372" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1541.0" y="340.0" text-anchor="start" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">每日刷新</text>
+<path d="M 1410,410.0 L 1260,410.0" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="1335.0" y="404.0" text-anchor="middle" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">枚举校验</text>
+<path d="M 1535.0,448 L 1535,490 L 955,490 L 955,550 L 940,550.0" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="1525" y="486" text-anchor="end" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4">枚举映射（写入规范化表时）</text>
+<path d="M 1110.0,654 L 1110.0,588" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<text x="1116.0" y="621.0" text-anchor="start" font-size="11" fill="#b4530a" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">入队</text>
+<path d="M 1050.0,512 L 1050.0,448" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<text x="1044.0" y="480.0" text-anchor="end" font-size="11" fill="#b4530a" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">出队（串行）</text>
+<path d="M 1170.0,448 L 1170.0,512" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<text x="1176.0" y="480.0" text-anchor="start" font-size="11" fill="#b4530a" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">状态回写</text>
+<path d="M 1050.0,372 L 1050.0,308" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<text x="1044.0" y="340.0" text-anchor="end" font-size="11" fill="#b4530a" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">提交</text>
+<path d="M 1050.0,232 L 1050.0,166" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<text x="1044.0" y="199.0" text-anchor="end" font-size="11" fill="#b4530a" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">签名请求</text>
+<path d="M 1170.0,166 L 1170.0,232" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<text x="1176.0" y="199.0" text-anchor="start" font-size="11" fill="#b4530a" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">ret.ok / msg / id</text>
+<path d="M 1170.0,308 L 1170.0,372" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<text x="1176.0" y="340.0" text-anchor="start" font-size="11" fill="#b4530a" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">结果 / 业务异常</text>
+<path d="M 960,410.0 L 950,410 L 950,270 L 770,270.0" fill="none" stroke="#b4530a" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow-accent)"/>
+<text x="942" y="300" text-anchor="end" font-size="11" fill="#b4530a" paint-order="stroke" stroke="#ffffff" stroke-width="4">查重 · 回读确认</text>
+<path d="M 450,410.0 L 440,410 L 440,829 L 470,829.0" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="434" y="610" text-anchor="end" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">日志 / 指标</text>
+<path d="M 1100.0,448 L 950,460 L 950,780 L 905,780 L 695.0,794" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="930" y="775" text-anchor="end" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4">写回失败告警</text>
+<path d="M 1535.0,794 L 1535.0,588" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1541.0" y="691.0" text-anchor="start" font-size="11" fill="#1f2937" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">写入差异</text>
+<path d="M 1535.0,794 L 1690,829 L 1690,215 L 1660,215 L 1535.0,232" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="1704" y="520" text-anchor="middle" font-size="11" fill="#1f2937" transform="rotate(90 1704 520)" paint-order="stroke" stroke="#ffffff" stroke-width="4">经接入层扫描 CRM 计数</text>
+<path d="M 1110.0,794 L 1290,794 L 1290,320 L 1262,320 L 1110.0,308" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="1300" y="560" text-anchor="middle" font-size="11" fill="#1f2937" transform="rotate(90 1300 560)" paint-order="stroke" stroke="#ffffff" stroke-width="4">凭证注入（环境变量）</text>
+<path d="M 170,918 L 406,918 L 420,952 L 406,986 L 170,986 L 184,952 Z" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="299.0" y="942" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">P0 只读镜像</text>
+<text x="299.0" y="962" text-anchor="middle" font-size="10.5" fill="#6b7280">凭证 · 冒烟 · 字典 · 四表落库 · 对账</text>
+<text x="299.0" y="978" text-anchor="middle" font-size="10" fill="#6b7280">验收：镜像与 CRM 一致</text>
+<path d="M 432,918 L 668,918 L 682,952 L 668,986 L 432,986 L 446,952 Z" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="561.0" y="942" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">P1 客户与产品写回</text>
+<text x="561.0" y="962" text-anchor="middle" font-size="10.5" fill="#6b7280">客户 / 联系人 / 自定义字段 / 产品 / 分类</text>
+<text x="561.0" y="978" text-anchor="middle" font-size="10" fill="#6b7280">验收：写入后回读一致</text>
+<path d="M 694,918 L 930,918 L 944,952 L 930,986 L 694,986 L 708,952 Z" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="823.0" y="942" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">P2 订单与发货</text>
+<text x="823.0" y="962" text-anchor="middle" font-size="10.5" fill="#6b7280">订单 · 发货单 · 出入库 · 通知单流程</text>
+<text x="823.0" y="978" text-anchor="middle" font-size="10" fill="#6b7280">验收：写入后回读一致</text>
+<path d="M 956,918 L 1192,918 L 1206,952 L 1192,986 L 956,986 L 970,952 Z" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1085.0" y="942" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">P3 财务</text>
+<text x="1085.0" y="962" text-anchor="middle" font-size="10.5" fill="#6b7280">计划回款 · 回款 · 开票 · 付款 · 采购</text>
+<text x="1085.0" y="978" text-anchor="middle" font-size="10" fill="#6b7280">验收：写入后回读一致</text>
+<path d="M 1218,918 L 1454,918 L 1468,952 L 1454,986 L 1218,986 L 1232,952 Z" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1347.0" y="942" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">P4 运营</text>
+<text x="1347.0" y="962" text-anchor="middle" font-size="10.5" fill="#6b7280">监控告警 · 对账报表 · 凭证轮换</text>
+<text x="1347.0" y="978" text-anchor="middle" font-size="10" fill="#6b7280">验收：2 周无人工介入</text>
+<text x="1490" y="932" font-size="12" font-weight="600" fill="#1f2937">图例</text>
+<line x1="1490" y1="948" x2="1530" y2="948" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/><text x="1538" y="952" font-size="11" fill="#1f2937">调用 / 数据流</text>
+<line x1="1490" y1="966" x2="1530" y2="966" stroke="#1f2937" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/><text x="1538" y="970" font-size="11" fill="#1f2937">校验 / 日志 / 配置</text>
+<line x1="1490" y1="984" x2="1530" y2="984" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/><text x="1538" y="988" font-size="11" fill="#b4530a">写回路径（查重 → 提交 → 回读）</text>
+<text x="1710" y="1052" text-anchor="end" font-size="10.5" fill="#6b7280">依据《XToolsCRM OPEN API》2026-05-22 · 麦可旺志 Microwants · 2026-09-11</text>
+</svg>
+<figcaption>图：XTools CRM 接入架构泳道全景图。六个泳道自上而下为 CRM 开放接口、接入层（已完成的 xtools 客户端）、同步层、存储层、应用层、监控与运维；五条链路为登录换取 sid、按游标增量读取并落库、数据字典每日刷新、业务变更经队列串行写回并回读确认（强调色）、日志告警与对账。底部为 P0–P4 阶段与验收标准。</figcaption>
+</figure>
+<section class="notes">
+<h2>链路要点</h2>
+<table>
+<tr><th style="width:12%">链路</th><th style="width:44%">机制</th><th>约束（依据文档）</th></tr>
+<tr><td>登录</td><td>接入层持有 sid 文件缓存；收到 20101/20102 自动重登并重试一次；30103 等待 10 秒</td><td>登录 10 秒内只能调用一次；sid 以 30 分钟为准，服务器重启或“踢掉所有用户”后失效</td></tr>
+<tr><td>读取</td><td>调度器按游标表拉取：customer / product 用 lasttime 增量，contract 等用 lastid 新增加活动单据重拉；原始 JSON 去重合并后派生规范化表</td><td>每页至多 100 条；lastid 分页以 id 递增为前提；扩展字段需 extend=1</td></tr>
+<tr><td>字典</td><td>每日刷新数据字典、字段中文名、人员对照；写回前做枚举校验，写入规范化表时做枚举映射</td><td>枚举取值因公司而异；产品表部分枚举读取返回文本、写入需数字</td></tr>
+<tr><td>写回</td><td>业务变更入队 → 单进程串行出队 → 按 sn / No. / memo 查重 → 提交（不自动重发）→ 回读确认 → 标记完成</td><td>写入无幂等键；订单、报价单修改时明细为全量替换；订单客户与计划回款客户不可修改</td></tr>
+<tr><td>监控</td><td>调用日志脱敏；告警覆盖登录失败、签名错误、业务错误率、增量停滞；每日对账写入结果表</td><td>附录状态码为空，错误码表需向 XTools 索取；凭证只保存在环境变量或密钥管理</td></tr>
+</table>
+</section>
+</div>
+</body>
+</html>

@@ -1,0 +1,7 @@
+.env
+.xtools_session.json
+data/
+dictionary/
+__pycache__/
+*.pyc
+.pytest_cache/
