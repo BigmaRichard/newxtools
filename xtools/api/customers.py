@@ -10,6 +10,10 @@
   contact[...]；extend=1 时可写 type、period、uid、info、tel、web、country、industry、employees、m_name。
   所有者默认为登录人 part；需指定所有者时先写入再调用客户转移。
 * 客户修改（api.update dt=customer）只改客户表不改联系人；data 中以 id 或 sn 定位；改 sn 时需提供 id。
+* 联系人修改（api.update dt=contact，文档 2026-09-01 版新增）：data.id 必填且不能为 0，不能传 cu_sn（客户不可改）；
+  可改 name、sex（2 男;1 女）、appellation、department、headship、preside、phone、mphone、mphone_s、fax、email、qq、weixin、
+  wx_name、qq_name、h_phone、h_addr、h_pst、birthday、remark、cr_ty（1 身份证;2 军官证;3 护照;4 其他1;5 其他2）、cr_sn、
+  islinkman（0 联系人;1 主联系人;2 个人客户;3 离职）、用户画像字段 ext_selN / ext_itemN；示例带 extend=1。
 * 自定义字段：读取 dt=customerext；写入 api.input dt=customerext，data={"sn"|"id", "ext_itemN": ...}。
 * 个人客户写入：api.input dt=cuview。
 * 行动记录：dt=action，cale 1 日程;2 待办任务;3 记录;4 *待办任务；op_id / prj_id 只能有一个。
@@ -65,6 +69,15 @@ class CustomerAPI:
     def transfer(self, owner: str, *, id: Optional[Id] = None, sn: Optional[str] = None) -> Dict[str, Any]:
         """客户转移（api.chgown）：owner 为业务员姓名或 part。"""
         return self.client.chgown(owner, id=id, sn=sn, dt=self.DT)
+
+    # ---- 联系人
+    def update_contact(self, data: Dict[str, Any], *, extend: Optional[int] = 1) -> Dict[str, Any]:
+        """修改联系人（api.update dt=contact）：data.id 必填；不能带 cu_sn；只传变化字段。返回 ret：{"ok":1,"msg":"修改联系人成功"}。"""
+        if not data.get("id"):
+            raise ValueError("修改联系人需提供非 0 的 id")
+        if "cu_sn" in data:
+            raise ValueError("联系人的所属客户不可修改，data 中不能包含 cu_sn")
+        return self.client.update("contact", data, extend=extend)
 
     # ---- 自定义字段（customerext）
     def ext_get(self, id: Optional[Id] = None, *, sn: Optional[str] = None) -> Optional[Dict[str, Any]]:

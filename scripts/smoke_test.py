@@ -82,6 +82,7 @@ def main() -> int:
     step("订单读取一页（dt=contract, extend=1）", lambda: xt.orders.list(lastid=0), verbose=args.verbose)
     step("产品读取一页（dt=product）", lambda: xt.products.list(lastid=0), verbose=args.verbose)
     step("回款记录一页（dt=gathering_note）", lambda: xt.client.output("gathering_note", lastid=0), verbose=args.verbose)
+    step("订单退货单一页（dt=libreturn，2026-09-01 版新增）", lambda: xt.client.output("libreturn", lastid=0), verbose=args.verbose)
     step("发货通知单一页（dt=sr_notice，未开通外部库存时预期失败）", lambda: xt.client.output("sr_notice", lastid=0), verbose=args.verbose)
     print("冒烟测试结束。")
     return 0

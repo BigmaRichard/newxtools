@@ -1,4 +1,4 @@
-"""订单与发货模块：contract（订单）/ sendgoods（发货单）/ sr_notice（收发货通知单）/ libout / libin / price（报价单）/ contract0（合同）。
+"""订单与发货模块：contract（订单）/ sendgoods（发货单）/ sr_notice（收发货通知单）/ libout / libin / price（报价单）/ contract0（合同）/ libreturn（订单退货单）。
 
 字段要点（摘自文档）：
 * 订单读取（dt=contract）过滤：lastid、id、"No."（订单编号）、confirm（1 待申请;2 同意;3 否决;4 待审）、
@@ -15,6 +15,10 @@
   状态变更 act=chgst（只允许改为 2/5/6/7），执行 act=exc（child 明细，no_more=1 时控制不超通知数量）。
 * 出库单：读取 dt=libout；写入 api.input dt=libout（title、lib、date、cu_sn、co_sn、who、libitem[{prod,num,memo}]），
   完成出库 api.cmdact act=liboutok（需写入返回的 id）。入库单同理：dt=libin，act=libinok。
+* 订单退货单读取（dt=libreturn，文档 2026-09-01 版新增，只读）：id、subject、cu_sn（无编号时为 "[id:N]"）、co_id（订单 ID）、
+  status（0 待处理;2 执行中;3 结束;4 终止）、ra_who / ra_date（审批）、lib、date、who / who_name、return_no、
+  st_libin（0 待入库;1 生成入库单;2 部分入库;3 全部入库;4 退货完成(无入库)）、st_hk（0 未退款;1 部分;2 全部）、hk_sum、money、
+  money_type、money_rate、one_select、sendcode、org_id、rtnitem[{id,pid,rnum,rprice,rsum,nin,reason,memo}]。
 """
 
 from __future__ import annotations
@@ -124,6 +128,14 @@ class OrderAPI:
     def update_quote(self, data: Dict[str, Any], *, extend: int = 1) -> Dict[str, Any]:
         """pricedetail 同样为全量替换。"""
         return self.client.update("price", data, extend=extend)
+
+    # ---- 订单退货单（libreturn，只读）
+    def returns(self, *, lastid: int = 0, **filters: Any) -> Iterator[Dict[str, Any]]:
+        """订单退货单读取（dt=libreturn）；filters 可用 id。明细在 rtnitem。"""
+        return self.client.iter_output("libreturn", lastid=lastid, **filters)
+
+    def get_return(self, id: Id) -> Optional[Dict[str, Any]]:
+        return self.client.output_one("libreturn", id)
 
     # ---- 合同（contract0）
     def contracts(self, *, lastid: int = 0, **filters: Any) -> Iterator[Dict[str, Any]]:

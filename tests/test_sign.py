@@ -1,4 +1,4 @@
-"""离线签名测试：全部用例取自《XToolsCRM OPEN API》文档中给出的“计算前字符串 / md 计算结果”。
+"""离线签名测试：用例取自《XToolsCRM OPEN API》文档（2026-05-22 与 2026-09-01 版）中给出的“计算前字符串 / md 计算结果”。
 
 运行：python -m pytest tests -q
 """
@@ -77,6 +77,14 @@ CASES = [
      '{"sid":"7af1d4e130a9df0da931d8fd534be89b"}', "api.cmdact", APPKEY2, "c6ca7df0ed77222b4ccb27b1f18ae8c5"),
     ("获客线索写入", '{"dt":"jk_collect","data":{"come_from":"来自电话回访","com_name":"宏大装修公司","con_name":"张总1","con_type":"19973607343","cost":"274","opport":"客户需求：120平米精装修","memo":"欧式风格","owner":"B100"}}',
      "1676270180", '{"sid":"a23d8cb2eb04680a87cfb792edd3f0bd"}', "api.input", APPKEY2, "314398eb38ebb06db705b5de5cdff91b"),
+    # 以下三组来自 2026-09-01 版文档新增接口
+    ("联系人修改（20260901 新增，值含单引号）",
+     '{"dt":"contact","extend":1,"data":{"id":"30735","name":"张安安","sex":"1","appellation":"经理","department":"研发部","headship":"工程师","preside":"产品设计","phone":"010-88889999","mphone":"13800138000","mphone_s":"13900139000","fax":"010-88889998","email":"zhanganan@xample.com","qq":"12345678","weixin":"zhang_weixin","wx_name":"张安安的微信昵称","qq_name":"张安安的QQ昵称","h_phone":"010-66667777","h_addr":"北京市海淀区中关村大街1号","h_pst":"100080","birthday":"1990-01-01","remark":"API修改联系人测试","contype":1,"py":"zhang\'an an","cr_ty":1,"cr_sn":"110101199001010011","ww":"zhang_wangwang","skype":"zhang_skype","islinkman":1}}',
+     "1788228190", '{"sid":"915c6d3cfad03159942387e341608da1"}', "api.update", APPKEY, "47572be8b3d7f6ae4acff453a3b319d1"),
+    ("采购退货单读取（20260901 新增）", '{"dt":"purreturn","id":152}', "1781593670", '{"sid":"ef177eb99ac8b0d2c11783b82e6255c7"}',
+     "api.output", APPKEY, "6407574abce5dc67958cbceb4b50de2c"),
+    ("订单退货单读取（20260901 新增）", '{"dt":"libreturn"}', "1781590357", '{"sid":"2784e788c0972414ac9d8115e6ff3edf"}',
+     "api.output", APPKEY, "250e4f0d49cf7b342eb2faafe8a7f651"),
 ]
 
 

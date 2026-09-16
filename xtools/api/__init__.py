@@ -1,6 +1,7 @@
+from .aftersales import RepairAPI
 from .customers import CustomerAPI
 from .finance import FinanceAPI
 from .orders import OrderAPI
 from .products import ProductAPI
 
-__all__ = ["CustomerAPI", "OrderAPI", "ProductAPI", "FinanceAPI"]
+__all__ = ["CustomerAPI", "OrderAPI", "ProductAPI", "FinanceAPI", "RepairAPI"]

@@ -1,6 +1,6 @@
 """XToolsCRM（超兔）OPEN API Python 客户端。
 
-协议要点（依据 apizza 导出的《XToolsCRM OPEN API》文档，2026-05-22 版；签名算法已用文档示例核验）：
+协议要点（依据 apizza 导出的《XToolsCRM OPEN API》文档，2026-09-01 版；签名算法已用文档示例核验）：
 
 * 统一入口：POST https://crm.xtcrm.com/open/index.xt，表单字段 cmd / appid / stamp / upr / param / md。
 * cmd 取值：user.login（登录）、api.output（读取）、api.input（写入）、api.update（修改）、
@@ -69,7 +69,7 @@ def _to_int(value: Any) -> Optional[int]:
 class XToolsClient:
     """线程不安全的简单客户端；多线程场景请每线程一个实例（sid 缓存文件可共享）。"""
 
-    USER_AGENT = "xtools-openapi-python/0.1"
+    USER_AGENT = "xtools-openapi-python/0.2"
 
     def __init__(
         self,

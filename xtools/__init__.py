@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .api import CustomerAPI, FinanceAPI, OrderAPI, ProductAPI
+from .api import CustomerAPI, FinanceAPI, OrderAPI, ProductAPI, RepairAPI
 from .client import XToolsClient, compact_json, md5_hex
 from .config import XToolsConfig
 from .errors import (
@@ -27,11 +27,11 @@ from .errors import (
     XToolsTransportError,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 class XTools:
-    """按业务模块组织的门面：xt.customers / xt.orders / xt.products / xt.finance / xt.client。"""
+    """按业务模块组织的门面：xt.customers / xt.orders / xt.products / xt.finance / xt.repairs / xt.client。"""
 
     def __init__(self, config: Optional[XToolsConfig] = None, **client_kwargs):
         self.client = XToolsClient(config, **client_kwargs)
@@ -39,6 +39,7 @@ class XTools:
         self.orders = OrderAPI(self.client)
         self.products = ProductAPI(self.client)
         self.finance = FinanceAPI(self.client)
+        self.repairs = RepairAPI(self.client)
 
     def login(self, *, force: bool = False) -> str:
         return self.client.login(force=force)
@@ -52,6 +53,7 @@ __all__ = [
     "OrderAPI",
     "ProductAPI",
     "FinanceAPI",
+    "RepairAPI",
     "XToolsError",
     "XToolsConfigError",
     "XToolsTransportError",

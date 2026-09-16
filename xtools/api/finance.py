@@ -1,5 +1,5 @@
 """财务模块：gathering（计划回款）/ gathering_note（回款记录）/ bill（开票记录）/ bill_apply（开票申请）/
-pay_plan（付款计划）/ purchase（采购单）/ cost（批单报销）/ costdetail（费用明细）。
+pay_plan（付款计划）/ purchase（采购单）/ purreturn（采购退货单）/ cost（批单报销）/ costdetail（费用明细）。
 
 字段要点（摘自文档）：
 * 计划回款（dt=gathering）：id、date、serial（期次）、money、status（是否回款）、who、principal、cu_sn、co_sn、prj_id、memo。
@@ -13,6 +13,9 @@ pay_plan（付款计划）/ purchase（采购单）/ cost（批单报销）/ cos
   exp_date、pay_com、rec_com、bank、acc_no、others、memo。
 * 采购单（dt=purchase，写入 extend=1）：title、cu_id|cu_sn、"No."、date、eta、type、status0、lib、address、who、money_type、money_rate、
   money、amount_before_tax、ref_cu_id、ref_co_id、prj_id、j1…、puritem[{prod,num,price,money,tax_rate,memo}]。
+* 采购退货单（dt=purreturn，文档 2026-09-01 版新增，只读）：id、subject、cu_sn、pu_id（采购单 ID）、status（0 待处理;2 执行中;3 结束;4 终止）、
+  ra_who / ra_date、lib、memo、date、who / who_name、return_no、st_libout（0 待出库;1 生成出库单;2 部分出库;3 全部出库;4 退货完成(无出库)）、
+  st_hk（0 未退款;1 部分;2 全部）、hk_sum、money、money_type、money_rate、one_select、org_id、purrtnitem[{id,pid,rnum,rprice,rsum,nout,reason,memo}]。
 * 批单报销（dt=cost）读取可按 lasttime、baox_st1、aprv_status 过滤；修改注意 aprv_status=4/5 会终结 CRM 审批且不可再改。
 """
 
@@ -75,6 +78,13 @@ class FinanceAPI:
 
     def create_purchase(self, data: Dict[str, Any], *, extend: int = 1) -> Dict[str, Any]:
         return self.client.input("purchase", data, extend=extend)
+
+    def purchase_returns(self, *, lastid: int = 0, **filters: Any) -> Iterator[Dict[str, Any]]:
+        """采购退货单读取（dt=purreturn，只读）；明细在 purrtnitem。"""
+        return self.client.iter_output("purreturn", lastid=lastid, **filters)
+
+    def get_purchase_return(self, id: Id) -> Optional[Dict[str, Any]]:
+        return self.client.output_one("purreturn", id)
 
     # ---- 报销 / 费用
     def expense_claims(self, *, lastid: int = 0, **filters: Any) -> Iterator[Dict[str, Any]]:

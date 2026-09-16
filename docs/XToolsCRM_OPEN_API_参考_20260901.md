@@ -1,8 +1,8 @@
 # XToolsCRM OPEN API 参考（整理版）
 
-麦可旺志 Microwants · xtools 优化项目 · 整理日期 2026-09-11
+麦可旺志 Microwants · xtools 优化项目 · 整理日期 2026-09-16
 
-来源：apizza 导出文件《OPEN API_20260522 1.html》（XToolsCRM OPEN API，2026-05-22）。本文按原文档逐接口整理，仅调整排版、未改动参数与说明内容；文档原有的拼写与不一致之处保留原样，另见《01_接入准备清单》风险 R7。统一入口 `POST https://crm.xtcrm.com/open/index.xt`。
+来源：apizza 导出文件《OPEN API_20260901.html》（XToolsCRM OPEN API，2026-09-01）。本文按原文档逐接口整理，仅调整排版、未改动参数与说明内容；文档原有的拼写与不一致之处保留原样，另见《01_接入准备清单》风险 R7。统一入口 `POST https://crm.xtcrm.com/open/index.xt`。与上一版（2026-05-22）的差异见《00_文档版本变更记录》。
 
 ## 目录
 
@@ -14,66 +14,69 @@
 6. 企业客户写入接口（api.input · dt=customer）
 7. 企业客户修改接口（api.update · dt=customer）
 8. 企业客户自定义字段数据写入接口（api.input · dt=customerext）
-9. 个人客户写入接口（api.input · dt=cuview）
-10. 订单写入接口（api.input · dt=contract）
-11. 订单读取接口（api.output · dt=contract）
-12. 订单修改接口（api.update · dt=contract）
-13. 订单分批发货（不计算库存的商品）接口（api.cmdact · dt=contract · act=sendGoods_no_stock）
-14. 订单自定义明细读取接口（api.cmdact · dt=contract · act=getOtherItems）
-15. 采购单写入接口（api.input · dt=purchase）
-16. 采购单读取接口（api.output · dt=purchase）
-17. 付款计划读取接口（api.output · dt=pay_plan）
-18. 付款计划写入接口（api.input · dt=pay_plan）
-19. 报价单写入接口（api.input · dt=price）
-20. 报价单修改接口（api.update · dt=price）
-21. 行动记录写入接口（api.input · dt=action）
-22. 行动记录读取接口（api.output · dt=action）
-23. 维修工单写入接口（api.input · dt=repairinfo）
-24. 维修工单读取接口（api.output · dt=repairinfo）
-25. 计划回款读取接口（api.output · dt=gathering）
-26. 计划回款修改接口（api.update · dt=gathering）
-27. 计划回款写入接口（api.input · dt=gathering）
-28. 回款记录写入接口（api.input · dt=gathering_note）
-29. 回款记录读取接口（api.output · dt=gathering_note）
-30. 开票记录写入接口（api.input · dt=bill）
-31. 销售机会读取接口（api.output · dt=opport）
-32. 流程读取接口（api.output · dt=process_exec）
-33. 附件读取接口（api.downfile · dt=customer）
-34. 批单报销修改接口（api.update · dt=cost）
-35. 批单报销读取接口（api.output · dt=cost）
-36. 费用明细读取接口（api.output · dt=costdetail）
-37. 出差读取接口（api.output · dt=b_trip）
-38. 项目读取接口（api.output · dt=project）
-39. 入库单写入接口（api.input · dt=libin）
-40. 入库单完成入库接口（api.cmdact · dt=libin · act=libinok）
-41. 出库单读取接口（api.output · dt=libout）
-42. 出库单写入接口（api.input · dt=libout）
-43. 出库单完成出库接口（api.cmdact · dt=libout · act=liboutok）
-44. 发货单读取接口（api.output · dt=sendgoods）
-45. 产品表读取接口（api.output · dt=product）
-46. 产品写入接口（api.input · dt=product）
-47. 产品修改接口（api.update · dt=product）
-48. 产品客制别名读取接口（api.output · dt=prod_alias）
-49. 产品客制别名写入接口（api.input · dt=prod_alias）
-50. 产品价格策略变更接口（api.cmdact · dt=product · act=chg_str_ps）
-51. 产品分类写入接口（api.input · dt=csstree）
-52. 产品分类读取接口（api.output · dt=csstree）
-53. 收发货通知单读取接口（api.output · dt=sr_notice）
-54. 收发货通知单状态变更接口（api.cmdact · dt=sr_notice · act=chgst）
-55. 收发货通知单执行接口（api.cmdact · dt=sr_notice · act=exc）
-56. 外部库存变更接口（api.cmdact · dt=libn · act=erp_libn）
-57. 合同读取接口（api.output · dt=contract0）
-58. 合同写入接口（api.input · dt=contract0）
-59. 字段信息（数据字典）读取接口（api.fieldinfo · dt=customer）
-60. 字段信息（字段名称）读取接口（api.fieldinfo · dt=customer · act=dbcn）
-61. 字段信息（用户）读取接口（api.fieldinfo · dt=customer · act=pr2nm）
-62. 领料单预生成接口（api.cmdact · dt=mes_process · act=preview）
-63. 生产工艺工序（api.output · dt=mes_flow）
-64. 获客线索读取接口（api.output · dt=jk_collect）
-65. 获客线索写入接口（api.input · dt=jk_collect）
-66. 开票申请的开票动作接口（api.cmdact · dt=bill_apply · act=kaipiao）
-67. 发货单修改接口（api.update · dt=sendgoods）
-68. 下游询价记录写入接口（api.input · dt=ask_price_note）
+9. 联系人修改接口（api.update · dt=contact）（本版新增）
+10. 个人客户写入接口（api.input · dt=cuview）
+11. 订单写入接口（api.input · dt=contract）
+12. 订单读取接口（api.output · dt=contract）
+13. 订单修改接口（api.update · dt=contract）
+14. 订单分批发货（不计算库存的商品）接口（api.cmdact · dt=contract · act=sendGoods_no_stock）
+15. 订单自定义明细读取接口（api.cmdact · dt=contract · act=getOtherItems）
+16. 采购单写入接口（api.input · dt=purchase）
+17. 采购单读取接口（api.output · dt=purchase）
+18. 付款计划读取接口（api.output · dt=pay_plan）
+19. 付款计划写入接口（api.input · dt=pay_plan）
+20. 报价单写入接口（api.input · dt=price）
+21. 报价单修改接口（api.update · dt=price）
+22. 行动记录写入接口（api.input · dt=action）
+23. 行动记录读取接口（api.output · dt=action）
+24. 维修工单写入接口（api.input · dt=repairinfo）
+25. 维修工单读取接口（api.output · dt=repairinfo）（本版有变更）
+26. 计划回款读取接口（api.output · dt=gathering）
+27. 计划回款修改接口（api.update · dt=gathering）
+28. 计划回款写入接口（api.input · dt=gathering）
+29. 回款记录写入接口（api.input · dt=gathering_note）
+30. 回款记录读取接口（api.output · dt=gathering_note）
+31. 开票记录写入接口（api.input · dt=bill）
+32. 销售机会读取接口（api.output · dt=opport）
+33. 流程读取接口（api.output · dt=process_exec）
+34. 附件读取接口（api.downfile · dt=customer）
+35. 批单报销修改接口（api.update · dt=cost）
+36. 批单报销读取接口（api.output · dt=cost）
+37. 费用明细读取接口（api.output · dt=costdetail）
+38. 出差读取接口（api.output · dt=b_trip）
+39. 项目读取接口（api.output · dt=project）
+40. 入库单写入接口（api.input · dt=libin）
+41. 入库单完成入库接口（api.cmdact · dt=libin · act=libinok）
+42. 出库单读取接口（api.output · dt=libout）
+43. 出库单写入接口（api.input · dt=libout）
+44. 出库单完成出库接口（api.cmdact · dt=libout · act=liboutok）
+45. 发货单读取接口（api.output · dt=sendgoods）
+46. 产品表读取接口（api.output · dt=product）
+47. 产品写入接口（api.input · dt=product）
+48. 产品修改接口（api.update · dt=product）
+49. 产品客制别名读取接口（api.output · dt=prod_alias）
+50. 产品客制别名写入接口（api.input · dt=prod_alias）
+51. 产品价格策略变更接口（api.cmdact · dt=product · act=chg_str_ps）
+52. 产品分类写入接口（api.input · dt=csstree）
+53. 产品分类读取接口（api.output · dt=csstree）
+54. 收发货通知单读取接口（api.output · dt=sr_notice）
+55. 收发货通知单状态变更接口（api.cmdact · dt=sr_notice · act=chgst）
+56. 收发货通知单执行接口（api.cmdact · dt=sr_notice · act=exc）
+57. 外部库存变更接口（api.cmdact · dt=libn · act=erp_libn）
+58. 合同读取接口（api.output · dt=contract0）
+59. 合同写入接口（api.input · dt=contract0）
+60. 字段信息（数据字典）读取接口（api.fieldinfo · dt=customer）
+61. 字段信息（字段名称）读取接口（api.fieldinfo · dt=customer · act=dbcn）
+62. 字段信息（用户）读取接口（api.fieldinfo · dt=customer · act=pr2nm）
+63. 领料单预生成接口（api.cmdact · dt=mes_process · act=preview）
+64. 生产工艺工序（api.output · dt=mes_flow）
+65. 获客线索读取接口（api.output · dt=jk_collect）
+66. 获客线索写入接口（api.input · dt=jk_collect）
+67. 开票申请的开票动作接口（api.cmdact · dt=bill_apply · act=kaipiao）
+68. 发货单修改接口（api.update · dt=sendgoods）
+69. 下游询价记录写入接口（api.input · dt=ask_price_note）
+70. 采购退货单读取接口（api.output · dt=purreturn）（本版新增）
+71. 订单退货单读取接口（api.output · dt=libreturn）（本版新增）
 
 
 ## 1. 登录接口
@@ -835,7 +838,89 @@ md计算结果:9d7041b7b4ea935cdc9d04032fcf43f4
                             
 ```
 
-## 9. 个人客户写入接口
+## 9. 联系人修改接口
+
+- 模块：客户与联系人 · cmd：`api.update` · dt：`contact` · 本版新增
+- 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
+
+### 请求参数
+
+| 参数 | 类型 | 必需 | 描述 | 示例 |
+|---|---|---|---|---|
+| cmd | string | 是 | 接口名称分类 | api.update |
+| appid | string | 是 | 开发公司的应用ID,由XTools公司提供 | open00001_sajdjsjsj |
+| stamp | string | 是 | 接口调用的当前时间戳 | 1528078285 |
+| upr | json | 是 | 用户的登录信息。登录接口返回中，有sid， 在登录成功后，返回的sid放入到upr即可登录。提高服务器性能。 | { "sid":"f6a55a89a2b4ff13be9cd6c147bca9e8",//登录接口返回的sid } |
+| param | json | 是 | 修改联系人的数据信息 | 见下方示例 |
+| md | string | 是 | 参数合法性校验码 | 6913de14caa74767e360ce918497e085 |
+
+param 示例：
+
+```
+{"dt":"contact","extend":1,"data":{"id":"30735","name":"张安安","sex":"1", "appellation":"经理","department":"研发部","headship":"工程师", "preside":"产品设计","phone":"010-88889999","mphone":"13800138000", "mphone_s":"13900139000","fax":"010-88889998","email":"zhanganan@xample.com", "qq":"12345678","weixin":"zhang_weixin","wx_name":"张安安的微信昵称", "qq_name":"张安安的QQ昵称","h_phone":"010-66667777", "h_addr":"北京市海淀区中关村大街1号","h_pst":"100080","birthday":"1990-01-01", "remark":"API修改联系人测试", "cr_ty":1,"cr_sn":"110101199001010011","islinkman":1}}
+```
+
+### 详细说明
+
+```
+参数对应数值如下：
+param:{"dt":"contact","extend":1,"data":{"id":"30735","name":"张安安","sex":"1","appellation":"经理","department":"研发部","headship":"工程师","preside":"产品设计","phone":"010-88889999","mphone":"13800138000","mphone_s":"13900139000","fax":"010-88889998","email":"zhanganan@xample.com","qq":"12345678","weixin":"zhang_weixin","wx_name":"张安安的微信昵称","qq_name":"张安安的QQ昵称","h_phone":"010-66667777","h_addr":"北京市海淀区中关村大街1号","h_pst":"100080","birthday":"1990-01-01","remark":"API修改联系人测试","contype":1,"py":"zhang'an an","cr_ty":1,"cr_sn":"110101199001010011","ww":"zhang_wangwang","skype":"zhang_skype","islinkman":1}}
+stamp:1788228190
+upr:{"sid":"915c6d3cfad03159942387e341608da1"}
+cmd:api.update
+appkey:open1slslslsdldlsdlds
+计算前字符串:{"dt":"contact","extend":1,"data":{"id":"30735","name":"张安安","sex":"1","appellation":"经理","department":"研发部","headship":"工程师","preside":"产品设计","phone":"010-88889999","mphone":"13800138000","mphone_s":"13900139000","fax":"010-88889998","email":"zhanganan@xample.com","qq":"12345678","weixin":"zhang_weixin","wx_name":"张安安的微信昵称","qq_name":"张安安的QQ昵称","h_phone":"010-66667777","h_addr":"北京市海淀区中关村大街1号","h_pst":"100080","birthday":"1990-01-01","remark":"API修改联系人测试","contype":1,"py":"zhang'an an","cr_ty":1,"cr_sn":"110101199001010011","ww":"zhang_wangwang","skype":"zhang_skype","islinkman":1}}1788228190{"sid":"915c6d3cfad03159942387e341608da1"}api.updateopen1slslslsdldlsdlds
+md计算结果:47572be8b3d7f6ae4acff453a3b319d1
+
+参数param内容说明：
+{
+	"dt": "contact", //数据表 contact 代表联系人修改
+	"data":
+		 {
+				"id": "30735", //联系人ID，修改时必填且不能为 0
+				//"cu_sn":"梦蝶北京", //注意：修改时不能传递 cu_sn，否则报错"对应客户不能修改，无法保存"
+				"name": "张安安", //姓名
+				"sex": "1", //性别 2:男;1:女
+				"appellation": "经理", //称谓
+				"department": "研发部", //部门
+				"headship": "工程师", //职务
+				"preside": "产品设计", //负责业务
+				"phone": "010-88889999", //工作电话
+				"mphone": "13800138000", //移动电话
+				"fax": "010-88889998", //传真
+				"email": "zhanganan@shturl.cc/",//邮箱
+				"qq": "12345678", //QQ
+				"weixin": "zhang_weixin", //微信
+				"wx_name": "张安安的微信昵称", //微信昵称
+				"qq_name": "张安安的QQ昵称", //QQ昵称
+				"h_phone": "010-66667777", //家庭电话
+				"h_addr": "北京市海淀区中关村大街1号",//家庭住址
+				"h_pst": "100080", //邮编
+				"birthday": "1990-01-01", //生日
+				"remark": "API修改联系人测试", //备注
+				"cr_ty": 1, //证件类型 1:身份证;2:军官证;3:护照;4:其他1;5:其他2
+				"cr_sn": "110101199001010011", //证件号码
+				"islinkman": 1, //类型 0:联系人;1:主联系人;2:#个人客户;3:离职
+				"ext_sel1": 1, //用户画像字段1
+				"ext_item1": "自定义字段2", //用户画像字段2
+				 用户画像字段以：ext_sel和ext_item开头。
+} }
+```
+
+### 返回示例
+
+```
+                                {
+    ok:1,//接口调用状态标志， 1:接口调用正常，  0:接口调用异常
+    ret: {
+        ok:1,// 联系人修改状态，1：修改成功，0：修改失败
+        msg:’修改联系人成功’//文字说明字符串，写入成功提示，或者失败原因
+        }
+}
+                            
+```
+
+## 10. 个人客户写入接口
 
 - 模块：客户与联系人 · cmd：`api.input` · dt：`cuview`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -914,7 +999,7 @@ md计算结果:aa20ffdf26a695c16e746bf57f27c7be
                             
 ```
 
-## 10. 订单写入接口
+## 11. 订单写入接口
 
 - 模块：订单与发货 · cmd：`api.input` · dt：`contract`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1115,7 +1200,7 @@ array(
                             
 ```
 
-## 11. 订单读取接口
+## 12. 订单读取接口
 
 - 模块：订单与发货 · cmd：`api.output` · dt：`contract`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1263,7 +1348,7 @@ ced67ca166b6a27897ff868ff45bbb9f
                             
 ```
 
-## 12. 订单修改接口
+## 13. 订单修改接口
 
 - 模块：订单与发货 · cmd：`api.update` · dt：`contract`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1456,7 +1541,7 @@ array(
                             
 ```
 
-## 13. 订单分批发货（不计算库存的商品）接口
+## 14. 订单分批发货（不计算库存的商品）接口
 
 - 模块：订单与发货 · cmd：`api.cmdact` · dt：`contract` · act：`sendGoods_no_stock`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1526,7 +1611,7 @@ md计算结果:cafa9bb483d3a32b5729f0c3e826b00c
                             
 ```
 
-## 14. 订单自定义明细读取接口
+## 15. 订单自定义明细读取接口
 
 - 模块：订单与发货 · cmd：`api.cmdact` · dt：`contract` · act：`getOtherItems`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1589,7 +1674,7 @@ md计算结果:dd30ce9e6715a6a681fb75d00fc03c1e
                             
 ```
 
-## 15. 采购单写入接口
+## 16. 采购单写入接口
 
 - 模块：财务 · cmd：`api.input` · dt：`purchase`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1676,7 +1761,7 @@ param 示例：
                             
 ```
 
-## 16. 采购单读取接口
+## 17. 采购单读取接口
 
 - 模块：财务 · cmd：`api.output` · dt：`purchase`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1774,7 +1859,7 @@ param 示例：
                             
 ```
 
-## 17. 付款计划读取接口
+## 18. 付款计划读取接口
 
 - 模块：财务 · cmd：`api.output` · dt：`pay_plan`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1842,7 +1927,7 @@ param参数的说明：
                             
 ```
 
-## 18. 付款计划写入接口
+## 19. 付款计划写入接口
 
 - 模块：财务 · cmd：`api.input` · dt：`pay_plan`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -1908,7 +1993,7 @@ param 示例：
                             
 ```
 
-## 19. 报价单写入接口
+## 20. 报价单写入接口
 
 - 模块：订单与发货 · cmd：`api.input` · dt：`price`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2002,7 +2087,7 @@ param 示例：
                             
 ```
 
-## 20. 报价单修改接口
+## 21. 报价单修改接口
 
 - 模块：订单与发货 · cmd：`api.update` · dt：`price`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2090,7 +2175,7 @@ param参数：
 }
 ```
 
-## 21. 行动记录写入接口
+## 22. 行动记录写入接口
 
 - 模块：客户与联系人 · cmd：`api.input` · dt：`action`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2158,7 +2243,7 @@ md计算结果:f106479a228a964469458bc2b2db8300
                             
 ```
 
-## 22. 行动记录读取接口
+## 23. 行动记录读取接口
 
 - 模块：客户与联系人 · cmd：`api.output` · dt：`action`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2233,9 +2318,9 @@ md计算结果:14772c52c44faeaf973c0778f66c4fc8
                             
 ```
 
-## 23. 维修工单写入接口
+## 24. 维修工单写入接口
 
-- 模块：其他 · cmd：`api.input` · dt：`repairinfo`
+- 模块：售后与其他 · cmd：`api.input` · dt：`repairinfo`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
 
 ### 请求参数
@@ -2312,9 +2397,9 @@ md计算结果:c1c5949fb503920268a9cf5de80bfd50
                             
 ```
 
-## 24. 维修工单读取接口
+## 25. 维修工单读取接口
 
-- 模块：其他 · cmd：`api.output` · dt：`repairinfo`
+- 模块：售后与其他 · cmd：`api.output` · dt：`repairinfo` · 本版有变更：20260901（补充返回字段说明）
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
 
 ### 请求参数
@@ -2347,6 +2432,45 @@ cmd:api.output
 appkey:open1slslslsdldlsdlds
 计算前字符串:{"dt":"repairinfo","lastid":10}1549956079{"sid":"0c3e041b927ddd0294017119ce459d92"}api.outputopen1slslslsdldlsdlds
 md计算结果:0274476693a99ad573231cf0c90b8055
+
+字段说明：
+{
+"id":"11", //维修工单主单ID
+"No.":"1", //维修单编号 维修工单流水--编号
+"who":"刘琪峰", //接单人
+"date":"2016-06-23", //接单日期
+"recv_time":"06:00", //接单时间
+"cu_sn":"BH002", //客户编码
+"name":"地方", //联系人
+"tel":"", //联系人电话
+"phone":"", //联系人手机
+"repairinfo": //维修信息
+ [
+ {
+ "id":"1", //维修单的扩展表ID
+ "prod":"6901236344033", //维修产品编码
+ "pdate":"", //生产日期
+ "sdate":"", //销售日期
+ "info":"", //维修问题故障描述
+ "notice":"", //沟通要点
+ "bx_status":"1", //是否保修期内 1:在保;2:出保
+ "dept":"1" //承接部门
+ }]},
+"goods": //维修配件及服务明细
+[
+{
+"id":"20593",//明细ID
+"pid":"11477",//产品ID
+"pro_name":"服务",//产品名称
+"model":"",//产品型号
+"spec":"-",//SKU 规格
+"amount":"1.000",//数量
+"un_price":"260.0000",//单价
+"sum":"260.00",//总金额
+"rep_sum":"0.00",//厂家承担金额
+"memo":""//备注
+}
+]
 ```
 
 ### 返回示例
@@ -2364,7 +2488,7 @@ md计算结果:0274476693a99ad573231cf0c90b8055
                             
 ```
 
-## 25. 计划回款读取接口
+## 26. 计划回款读取接口
 
 - 模块：财务 · cmd：`api.output` · dt：`gathering`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2436,7 +2560,7 @@ array (
                             
 ```
 
-## 26. 计划回款修改接口
+## 27. 计划回款修改接口
 
 - 模块：财务 · cmd：`api.update` · dt：`gathering`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2502,7 +2626,7 @@ md计算结果:b276c0e35aa0af1a9a09487b8ba4dad2
                             
 ```
 
-## 27. 计划回款写入接口
+## 28. 计划回款写入接口
 
 - 模块：财务 · cmd：`api.input` · dt：`gathering`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2568,7 +2692,7 @@ md计算结果:713a055f276ff1d7e59354113326713f
                             
 ```
 
-## 28. 回款记录写入接口
+## 29. 回款记录写入接口
 
 - 模块：财务 · cmd：`api.input` · dt：`gathering_note`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2644,7 +2768,7 @@ md计算结果:44c5577e091e82c3853bb95b88f85cd0
                             
 ```
 
-## 29. 回款记录读取接口
+## 30. 回款记录读取接口
 
 - 模块：财务 · cmd：`api.output` · dt：`gathering_note`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2717,7 +2841,7 @@ md计算结果:a7e5ddae81d5dd06511b5a3abc1a6490
                             
 ```
 
-## 30. 开票记录写入接口
+## 31. 开票记录写入接口
 
 - 模块：财务 · cmd：`api.input` · dt：`bill`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2793,7 +2917,7 @@ md计算结果:0d2a57b0f17d8d66885278f7cb219bad
                             
 ```
 
-## 31. 销售机会读取接口
+## 32. 销售机会读取接口
 
 - 模块：客户与联系人 · cmd：`api.output` · dt：`opport`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -2898,9 +3022,9 @@ md计算结果:6c2723933d3b41851d822f8181c038ba
                             
 ```
 
-## 32. 流程读取接口
+## 33. 流程读取接口
 
-- 模块：其他 · cmd：`api.output` · dt：`process_exec`
+- 模块：售后与其他 · cmd：`api.output` · dt：`process_exec`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
 
 ### 请求参数
@@ -2986,7 +3110,7 @@ md计算结果:d4a030776f13b2af69d060b714b5dd6e
                             
 ```
 
-## 33. 附件读取接口
+## 34. 附件读取接口
 
 - 模块：基础 · cmd：`api.downfile` · dt：`customer`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3059,7 +3183,7 @@ md计算结果:a9ca053b884df6c2b38577780a74f916
                             
 ```
 
-## 34. 批单报销修改接口
+## 35. 批单报销修改接口
 
 - 模块：财务 · cmd：`api.update` · dt：`cost`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3135,7 +3259,7 @@ aprv_status 是CRM系统真正的审批状态，如果aprv_status=4（同意）�
                             
 ```
 
-## 35. 批单报销读取接口
+## 36. 批单报销读取接口
 
 - 模块：财务 · cmd：`api.output` · dt：`cost`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3241,7 +3365,7 @@ param参数扩展说明：
                             
 ```
 
-## 36. 费用明细读取接口
+## 37. 费用明细读取接口
 
 - 模块：财务 · cmd：`api.output` · dt：`costdetail`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3319,9 +3443,9 @@ md计算结果:7908e3f751c5fd6d80c3bc2ad565e8c1
                             
 ```
 
-## 37. 出差读取接口
+## 38. 出差读取接口
 
-- 模块：其他 · cmd：`api.output` · dt：`b_trip`
+- 模块：售后与其他 · cmd：`api.output` · dt：`b_trip`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
 
 ### 请求参数
@@ -3396,9 +3520,9 @@ md计算结果:b5e262ec3c087ccaf8dbd1ccb373d3cf
                             
 ```
 
-## 38. 项目读取接口
+## 39. 项目读取接口
 
-- 模块：其他 · cmd：`api.output` · dt：`project`
+- 模块：售后与其他 · cmd：`api.output` · dt：`project`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
 
 ### 请求参数
@@ -3486,7 +3610,7 @@ md计算结果:034a0d89d3484b21cc2d963e248392d1
                             
 ```
 
-## 39. 入库单写入接口
+## 40. 入库单写入接口
 
 - 模块：订单与发货 · cmd：`api.input` · dt：`libin`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3557,7 +3681,7 @@ md计算结果:69be2d1efb953eabd93db80560eac9ec
                             
 ```
 
-## 40. 入库单完成入库接口
+## 41. 入库单完成入库接口
 
 - 模块：订单与发货 · cmd：`api.cmdact` · dt：`libin` · act：`libinok`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3617,7 +3741,7 @@ md计算结果:f383920e9dfaa1e807a32d91c6f447f9
                             
 ```
 
-## 41. 出库单读取接口
+## 42. 出库单读取接口
 
 - 模块：订单与发货 · cmd：`api.output` · dt：`libout`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3714,7 +3838,7 @@ md计算结果:4e9032f64856f5349318e10fb0f2989b
                             
 ```
 
-## 42. 出库单写入接口
+## 43. 出库单写入接口
 
 - 模块：订单与发货 · cmd：`api.input` · dt：`libout`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3791,7 +3915,7 @@ md计算结果:5d5e6cea383deba4ccd0e7c249514aa5
                             
 ```
 
-## 43. 出库单完成出库接口
+## 44. 出库单完成出库接口
 
 - 模块：订单与发货 · cmd：`api.cmdact` · dt：`libout` · act：`liboutok`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3852,7 +3976,7 @@ md计算结果:4a3dd4b3194fc8bf8dd69066d3357cde
                             
 ```
 
-## 44. 发货单读取接口
+## 45. 发货单读取接口
 
 - 模块：订单与发货 · cmd：`api.output` · dt：`sendgoods`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -3941,7 +4065,7 @@ b7a0acc80caf0bb5c1778a463c02cf28
                             
 ```
 
-## 45. 产品表读取接口
+## 46. 产品表读取接口
 
 - 模块：产品与库存 · cmd：`api.output` · dt：`product`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4050,7 +4174,7 @@ md计算结果:07fd75ecd1a42ded85d6fd7385c83612
                             
 ```
 
-## 46. 产品写入接口
+## 47. 产品写入接口
 
 - 模块：产品与库存 · cmd：`api.input` · dt：`product`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4123,7 +4247,7 @@ md计算结果:e361ac47d93e0d6d322861013d959208
                             
 ```
 
-## 47. 产品修改接口
+## 48. 产品修改接口
 
 - 模块：产品与库存 · cmd：`api.update` · dt：`product`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4189,7 +4313,7 @@ json自定义字段，//根据公司别设置，有所不同
                             
 ```
 
-## 48. 产品客制别名读取接口
+## 49. 产品客制别名读取接口
 
 - 模块：产品与库存 · cmd：`api.output` · dt：`prod_alias`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4255,7 +4379,7 @@ md计算结果:8cf49a184cae5930f47ac960e1637a38
                             
 ```
 
-## 49. 产品客制别名写入接口
+## 50. 产品客制别名写入接口
 
 - 模块：产品与库存 · cmd：`api.input` · dt：`prod_alias`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4316,7 +4440,7 @@ md计算结果:35df4a77dbb4a9844bd8317ca74be14e
                             
 ```
 
-## 50. 产品价格策略变更接口
+## 51. 产品价格策略变更接口
 
 - 模块：产品与库存 · cmd：`api.cmdact` · dt：`product` · act：`chg_str_ps`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4381,7 +4505,7 @@ md计算结果:c25272aa7016d0c4f36aeb5c01578825
                             
 ```
 
-## 51. 产品分类写入接口
+## 52. 产品分类写入接口
 
 - 模块：产品与库存 · cmd：`api.input` · dt：`csstree`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4449,7 +4573,7 @@ md计算结果:b9655d6347a0a9075c011c1eef580282
                             
 ```
 
-## 52. 产品分类读取接口
+## 53. 产品分类读取接口
 
 - 模块：产品与库存 · cmd：`api.output` · dt：`csstree`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4516,7 +4640,7 @@ md计算结果:d416f2cfde6b80ba30e6326761694109
                             
 ```
 
-## 53. 收发货通知单读取接口
+## 54. 收发货通知单读取接口
 
 - 模块：订单与发货 · cmd：`api.output` · dt：`sr_notice`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4633,7 +4757,7 @@ md计算结果:bec43ba2510e8047449ec99bf0cd15d1
                             
 ```
 
-## 54. 收发货通知单状态变更接口
+## 55. 收发货通知单状态变更接口
 
 - 模块：订单与发货 · cmd：`api.cmdact` · dt：`sr_notice` · act：`chgst`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4711,7 +4835,7 @@ md计算结果:96f2e92a89075c683ccac0536e279d54
                             
 ```
 
-## 55. 收发货通知单执行接口
+## 56. 收发货通知单执行接口
 
 - 模块：订单与发货 · cmd：`api.cmdact` · dt：`sr_notice` · act：`exc`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4823,7 +4947,7 @@ md计算结果:3aa53eb432b8864ee05018855c4feb1f
                             
 ```
 
-## 56. 外部库存变更接口
+## 57. 外部库存变更接口
 
 - 模块：产品与库存 · cmd：`api.cmdact` · dt：`libn` · act：`erp_libn`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4890,7 +5014,7 @@ md计算结果:a14823f751e2143ee77ba5f871ca853a
                             
 ```
 
-## 57. 合同读取接口
+## 58. 合同读取接口
 
 - 模块：订单与发货 · cmd：`api.output` · dt：`contract0`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -4985,7 +5109,7 @@ md计算结果:9dbbaf615687c75ad21d5875ff20330f
                             
 ```
 
-## 58. 合同写入接口
+## 59. 合同写入接口
 
 - 模块：订单与发货 · cmd：`api.input` · dt：`contract0`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5073,7 +5197,7 @@ md计算结果:16f8f14ac1744ac124764cfa93674e59
                             
 ```
 
-## 59. 字段信息（数据字典）读取接口
+## 60. 字段信息（数据字典）读取接口
 
 - 模块：基础 · cmd：`api.fieldinfo` · dt：`customer`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5134,7 +5258,7 @@ md计算结果:8b673832d84b1ab034b9668fc806a43a
                             
 ```
 
-## 60. 字段信息（字段名称）读取接口
+## 61. 字段信息（字段名称）读取接口
 
 - 模块：基础 · cmd：`api.fieldinfo` · dt：`customer` · act：`dbcn`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5195,7 +5319,7 @@ md计算结果:1aef172553cc66aae8075bf641b73235
                             
 ```
 
-## 61. 字段信息（用户）读取接口
+## 62. 字段信息（用户）读取接口
 
 - 模块：基础 · cmd：`api.fieldinfo` · dt：`customer` · act：`pr2nm`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5265,9 +5389,9 @@ c353587e7c8ef5e967b9e64c0a061c58
                             
 ```
 
-## 62. 领料单预生成接口
+## 63. 领料单预生成接口
 
-- 模块：其他 · cmd：`api.cmdact` · dt：`mes_process` · act：`preview`
+- 模块：售后与其他 · cmd：`api.cmdact` · dt：`mes_process` · act：`preview`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
 
 ### 请求参数
@@ -5366,9 +5490,9 @@ md计算结果:c4aafacafc0814a0b24db23f55360439
                             
 ```
 
-## 63. 生产工艺工序
+## 64. 生产工艺工序
 
-- 模块：其他 · cmd：`api.output` · dt：`mes_flow`
+- 模块：售后与其他 · cmd：`api.output` · dt：`mes_flow`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
 
 ### 请求参数
@@ -5475,7 +5599,7 @@ md计算结果:9dbbaf615687c75ad21d5875ff20330f
                             
 ```
 
-## 64. 获客线索读取接口
+## 65. 获客线索读取接口
 
 - 模块：客户与联系人 · cmd：`api.output` · dt：`jk_collect`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5550,7 +5674,7 @@ md计算结果:932c91b645fdf6c3fe2b46cca97553b0
                             
 ```
 
-## 65. 获客线索写入接口
+## 66. 获客线索写入接口
 
 - 模块：客户与联系人 · cmd：`api.input` · dt：`jk_collect`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5620,7 +5744,7 @@ md计算结果:314398eb38ebb06db705b5de5cdff91b
                             
 ```
 
-## 66. 开票申请的开票动作接口
+## 67. 开票申请的开票动作接口
 
 - 模块：财务 · cmd：`api.cmdact` · dt：`bill_apply` · act：`kaipiao`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5682,7 +5806,7 @@ md计算结果:c6ca7df0ed77222b4ccb27b1f18ae8c5
                             
 ```
 
-## 67. 发货单修改接口
+## 68. 发货单修改接口
 
 - 模块：订单与发货 · cmd：`api.update` · dt：`sendgoods`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5770,7 +5894,7 @@ md计算结果:7bf31787850a46e67bc319df60c018a7
                             
 ```
 
-## 68. 下游询价记录写入接口
+## 69. 下游询价记录写入接口
 
 - 模块：客户与联系人 · cmd：`api.input` · dt：`ask_price_note`
 - 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
@@ -5829,6 +5953,233 @@ md计算结果:d73b23db472ea298edf75bbd7e4dc64d
         msg:’下游询价记录添加成功！’//文字说明字符串，写入成功提示，或者失败原因
         id:40614  //添加数据ID
         }
+}
+                            
+```
+
+## 70. 采购退货单读取接口
+
+- 模块：财务 · cmd：`api.output` · dt：`purreturn` · 本版新增
+- 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
+
+### 请求参数
+
+| 参数 | 类型 | 必需 | 描述 | 示例 |
+|---|---|---|---|---|
+| cmd | string | 是 | 接口名称分类 | api.output |
+| appid | string | 是 | 开发公司的应用ID,由XTools公司提供 | open00001_sajdjsjsj |
+| stamp | string | 是 | 接口调用的当前时间戳 | 1549954821 |
+| upr | string | 是 | 用户的登录信息。在上次登录接口返回中，有sid， 在登录成功后，返回的sid放入到upr即可登录。提高服务器性能。 | { "sid":"96c584001f27e93c443e8eb0ee77e9b4",//登录接口返回的sid } |
+| param | string | 是 | 采购退货单的读取参数 | 见下方示例 |
+| md | string | 是 | 参数合法性校验码 | 79bdc07d245290beea7da0c9ec0fbb58 |
+
+param 示例：
+
+```
+{  	"dt":"purreturn",//读取数据的分类，purreturn代表采购退货单  	"lastid":0,//指定上次下载的最后一个ID,和参数id二选一  	"id":    10//指定下载的一条数据的ID号,有这个参数，lastid就不起作用  }
+```
+
+### 详细说明
+
+```
+假定参数对应数值如下：
+param:{"dt":"purreturn","id":152}
+stamp:1781593670
+upr:{"sid":"ef177eb99ac8b0d2c11783b82e6255c7"}
+cmd:api.output
+appkey:open1slslslsdldlsdlds
+计算前字符串:{"dt":"purreturn","id":152}1781593670{"sid":"ef177eb99ac8b0d2c11783b82e6255c7"}api.outputopen1slslslsdldlsdlds
+md计算结果:6407574abce5dc67958cbceb4b50de2c
+
+param参数说明：
+{
+"dt":"purreturn",//读取数据的分类，purreturn代表采购退货单
+"lastid":0,//指定上次下载的最后一个ID,和参数id二选一
+"id":  10//指定下载的一条数据的ID号,有这个参数，lastid就不起作用
+}
+
+返回字段说明：
+{
+        "id": "152", //采购退货ID
+        "subject": "自动主题-采购单号:CGD20251106059-序列号001等1种产品-退货", //采购退货单标题
+        "cu_sn": "11111", //客户编号
+        "pu_id": "2095", //对应采购单ID
+        "status": "2", //状态 0:待处理|dcl;2:执行中|zxz;3:结束|over;4:终止
+        "ra_who": null, //退货审批人
+        "ra_date": "", //退货审批日期
+        "lib": "1", //退货仓库
+        "memo": "", //备注
+        "date": "2025-11-06", //退货日期
+        "who": "B1", //经办人
+       "who_name": "陈默", //经办人姓名
+        "return_no": "", //退货单编号
+        "st_libout": "3", //出库状态 0:待出库;1:生成出库单;2:部分出库;3:全部出库;4:退货完成(无出库)
+        "st_hk": "0", //退款状态 0:未退款;1:部分退款;2:全部退款
+        "hk_sum": "0.00", //已回款金额
+        "money": "13.80", //应退货金额
+        "money_type": "RMB", //币种 可不传递，缺省 RMB, 请参考多币种设置里面的币种，如: JPY CAD RMB EUR USD
+        "money_rate": "100", //汇率，可不传递，缺省 100
+        "one_select": "0", //分类
+        "org_id": "0", //组织ID
+        "purrtnitem": [
+          {
+            "id": "319", //退货项ID
+            "pid": "15491", //产品ID,对应 外部的产品编号
+            "rnum": "1.000", //退货数量
+            "rprice": "13.8000", //单价
+            "rsum": "13.80", //退货金额
+            "nout": "1.000", //已出库数量
+            "reason": "", //退货原因
+            "memo": "" //产品明细备注
+          }
+        ]
+      }
+```
+
+### 返回示例
+
+```
+                                {
+    "ok": 1,
+    "ret": {
+        "ok": 1,
+        "data": [
+            {采购退货单1},{采购退货单2},
+    ...
+    最多100条
+        ]
+    }
+}
+                            
+```
+
+## 71. 订单退货单读取接口
+
+- 模块：订单与发货 · cmd：`api.output` · dt：`libreturn` · 本版新增
+- 请求方式：POST · 请求地址：https://crm.xtcrm.com/open/index.xt（原文部分接口写为 http）
+
+### 请求参数
+
+| 参数 | 类型 | 必需 | 描述 | 示例 |
+|---|---|---|---|---|
+| cmd | string | 是 | 接口名称分类 | api.output |
+| appid | string | 是 | 开发公司的应用ID,由XTools公司提供 | open00001_sajdjsjsj |
+| stamp | string | 是 | 接口调用的当前时间戳 | 1549954821 |
+| upr | string | 是 | 用户的登录信息。在上次登录接口返回中，有sid， 在登录成功后，返回的sid放入到upr即可登录。提高服务器性能。 | { "sid":"96c584001f27e93c443e8eb0ee77e9b4",//登录接口返回的sid } |
+| param | string | 是 | 订单退货的读取参数 | 见下方示例 |
+| md | string | 是 | 参数合法性校验码 | 79bdc07d245290beea7da0c9ec0fbb58 |
+
+param 示例：
+
+```
+{  	"dt":"libreturn",//读取数据的分类，libreturn代表订单退货  	"lastid":0,//指定上次下载的最后一个ID,和参数id二选一  	"id":    10//指定下载的一条数据的ID号,有这个参数，lastid就不起作用  }
+```
+
+### 详细说明
+
+```
+假定参数对应数值如下：
+param:{"dt":"libreturn"}
+stamp:1781590357
+upr:{"sid":"2784e788c0972414ac9d8115e6ff3edf"}
+cmd:api.output
+appkey:open1slslslsdldlsdlds
+计算前字符串:{"dt":"libreturn"}1781590357{"sid":"2784e788c0972414ac9d8115e6ff3edf"}api.outputopen1slslslsdldlsdlds
+md计算结果:250e4f0d49cf7b342eb2faafe8a7f651
+
+参数说明：
+{
+ "dt":"libreturn",//读取数据的分类，libreturn代表订单退货
+"lastid":0,//指定上次下载的最后一个ID,和参数id二选一
+"id":  10//指定下载的一条数据的ID号,有这个参数，lastid就不起作用
+}
+
+返回数据说明：
+{
+  "id": "196",        // 订单退货单ID
+  "subject": "wtest1112th", // 退货标题
+  "cu_sn": "[id:17209]",   // 客户编号，如果没客户编号，返回客户ID
+  "co_id": "6776",      // 订单ID
+  "status": "2",       // 退货单状态 0:待处理|dcl;2:执行中|zxz;3:结束|over;4:终止
+  "ra_who": "",       // 退货审批人
+  "ra_date": "",       // 退货审批日期
+  "lib": "1",        // 退货仓库
+  "memo": "",        // 备注
+  "date": "2020-12-01",   // 退货日期
+  "who": "B100",       // 经办人
+  "who_name": "陈默", //经办人姓名
+  "return_no": "",      // 退货单编号
+  "st_libin": "3",      // 入库状态 0:待入库;1:生成入库单;2:部分入库;3:全部入库;4:退货完成(无入库)
+  "st_hk": "0",       // 回款状态 0:未退款;1:部分退款;2:全部退款
+  "hk_sum": "0.00",     // 已回款金额
+  "money": "50.00",     // 应退货金额
+  "money_type": "RMB",    // 币种 可不传递，缺省 RMB, 请参考多币种设置里面的币种，如: JPY CAD RMB EUR USD
+  "money_rate": "100",    // 汇率，可不传递，缺省 100
+  "one_select": "0",     // 分类
+  "sendcode": "",      // 物流单号
+  "org_id": "0",       // 组织ID
+  "rtnitem": [
+    {
+      "id": "324",    // 退货项ID
+      "pid": "10912",  // 产品ID,对应 外部的产品编号
+      "rnum": "1.000",  // 退货数量
+      "rprice": "57.5000",// 单价
+      "rsum": "57.50",  // 退货金额
+      "nin": "1.000",  // 入库数量
+      "reason": "",   // 退货原因
+      "memo": ""     // 产品明细备注
+    }
+  ]
+}
+```
+
+### 返回示例
+
+```
+                                {
+    "ok": 1,
+    "ret": {
+        "ok": 1,
+        "data": [
+            {
+    "id": "196",               // 订单退货单ID
+    "subject": "wtest1112th",  // 退货标题
+    "cu_sn": "[id:17209]",     // 客户编号，如果没客户编号，返回客户ID
+    "co_id": "6776",           // 订单ID
+    "status": "2",             // 退货单状态 0:待处理|dcl;2:执行中|zxz;3:结束|over;4:终止
+    "ra_who": "",              // 退货审批人
+    "ra_date": "",             // 退货审批日期
+    "lib": "1",                // 退货仓库
+    "memo": "",                // 备注
+    "date": "2020-12-01",      // 退货日期
+    "who": "B100",             // 经办人
+    "return_no": "",           // 退货单编号
+    "st_libin": "3",           // 入库状态 0:待入库;1:生成入库单;2:部分入库;3:全部入库;4:退货完成(无入库)
+    "st_hk": "0",              // 回款状态 0:未退款;1:部分退款;2:全部退款
+    "hk_sum": "0.00",          // 已回款金额
+    "money": "50.00",          // 应退货金额
+    "money_type": "RMB",       // 币种 可不传递，缺省 RMB, 请参考多币种设置里面的币种，如: JPY CAD RMB EUR USD
+    "money_rate": "100",       // 汇率，可不传递，缺省 100
+    "one_select": "0",         // 分类
+    "sendcode": "",            // 物流单号
+    "org_id": "0",             // 组织ID
+    "rtnitem": [
+        {
+            "id": "324",       // 退货项ID
+            "pid": "10912",    // 产品ID,对应 外部的产品编号
+            "rnum": "1.000",   // 退货数量
+            "rprice": "57.5000",// 单价
+            "rsum": "57.50",   // 退货金额
+            "nin": "1.000",    // 入库数量
+            "reason": "",      // 退货原因
+            "memo": ""         // 产品明细备注
+        }
+    ]
+}
+    ...
+    最多100条
+        ]
+    }
 }
                             
 ```

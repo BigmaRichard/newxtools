@@ -197,3 +197,33 @@ def test_session_expired_class(env):
     server.script.append({"ok": 0, "err": {"errno": 20102, "errmsg": "session已经失效"}})
     with pytest.raises(XToolsSessionExpired):
         client.output("customer")
+
+
+def test_update_contact_guards_and_payload(env):
+    from xtools import XTools
+    client, server, _, _ = env
+    xt = XTools(client.config, session=server, clock=client._clock, sleep=lambda s: None)
+    xt.client._sid = client.login()
+    with pytest.raises(ValueError):
+        xt.customers.update_contact({"name": "无 id"})
+    with pytest.raises(ValueError):
+        xt.customers.update_contact({"id": 30735, "cu_sn": "C0001"})
+    server.script.append({"ok": 1, "ret": {"ok": 1, "msg": "修改联系人成功"}})
+    ret = xt.customers.update_contact({"id": 30735, "mphone": "13800138000"})
+    assert ret["msg"] == "修改联系人成功"
+    sent = server.calls[-1]
+    assert sent["cmd"] == "api.update"
+    assert sent["param"] == '{"dt":"contact","extend":1,"data":{"id":30735,"mphone":"13800138000"}}'
+
+
+def test_return_readers_use_expected_dt(env):
+    from xtools import XTools
+    client, server, _, _ = env
+    xt = XTools(client.config, session=server, clock=client._clock, sleep=lambda s: None)
+    xt.client._sid = client.login()
+    server.script.append({"ok": 1, "ret": {"ok": 1, "data": [{"id": "196", "rtnitem": []}]}})
+    assert xt.orders.get_return(196)["id"] == "196"
+    assert json.loads(server.calls[-1]["param"]) == {"dt": "libreturn", "id": 196}
+    server.script.append({"ok": 1, "ret": {"ok": 1, "data": [{"id": "152", "purrtnitem": []}]}})
+    assert xt.finance.get_purchase_return(152)["id"] == "152"
+    assert json.loads(server.calls[-1]["param"]) == {"dt": "purreturn", "id": 152}

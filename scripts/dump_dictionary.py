@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from xtools import XTools, XToolsError  # noqa: E402
 
-TABLES = ["customer", "contract", "product", "gathering", "gathering_note", "bill", "sendgoods", "purchase", "action", "opport"]
+TABLES = ["customer", "contact", "contract", "product", "gathering", "gathering_note", "bill", "sendgoods", "purchase", "purreturn", "libreturn", "repairinfo", "action", "opport"]
 
 # 文档中明确提到“参考数据字典”的字段（首批四模块）
 DICT_FIELDS = {
@@ -38,6 +38,9 @@ DICT_FIELDS = {
     "sendgoods": ["sntype", "package_type", "costtype", "status", "one_select"],
     "action": ["type", "cale"],
     "purchase": ["type", "status0"],
+    "contact": ["contype"],
+    "libreturn": ["one_select"],
+    "purreturn": ["one_select"],
 }
 
 
