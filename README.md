@@ -67,7 +67,7 @@ cd newxtools && python3 scripts/roundtrip_test.py
 P0 只读镜像：首次全量并安装每 30 分钟一次的定时增量（详见《docs/06_P0只读镜像使用说明.md》）：
 
 ```
-cd newxtools && .venv/bin/python scripts/sync.py --init && .venv/bin/python scripts/install_launchd.py
+cd newxtools && .venv/bin/python scripts/sync.py --init; .venv/bin/python scripts/install_launchd.py
 ```
 
 ## 代码示例

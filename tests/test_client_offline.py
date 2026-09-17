@@ -173,6 +173,40 @@ def test_read_is_retried_on_network_error(env):
     assert len([c for c in server.calls if c["cmd"] == "api.output"]) == 2
 
 
+def test_read_retries_five_times_with_growing_backoff(env):
+    client, server, _, slept = env
+    client.login()
+    slept.clear()
+    # 连续 4 次超时 + 1 次 DNS 抖动后成功：共 5 次尝试，等待 2/5/15/30 秒
+    server.script.extend([requests.ReadTimeout("t1"), requests.ReadTimeout("t2"), requests.ReadTimeout("t3"),
+                          requests.ConnectionError("dns"), lambda f: {"ok": 1, "ret": {"ok": 1, "data": [{"id": "1"}]}}])
+    rows = client.output("contract", lastid=0, extend=1)
+    assert rows == [{"id": "1"}]
+    assert len([c for c in server.calls if c["cmd"] == "api.output"]) == 5
+    assert slept == [2.0, 5.0, 15.0, 30.0]
+    # 第 5 次仍失败：抛 XToolsTransportError，不再重试
+    server.script.extend([requests.ReadTimeout("t")] * 5)
+    with pytest.raises(XToolsTransportError) as info:
+        client.output("contract", lastid=0)
+    assert "已重试 5 次" in str(info.value)
+    assert len([c for c in server.calls if c["cmd"] == "api.output"]) == 10
+
+
+def test_read_retries_gateway_5xx_but_write_does_not(env):
+    client, server, _, _ = env
+    client.login()
+    server.script.extend([FakeResponse("<html>502 Bad Gateway</html>", status_code=502),
+                          FakeResponse("<html>503</html>", status_code=503)])
+    rows = client.output("customer", lastid=0)
+    assert len(rows) == 100
+    assert len([c for c in server.calls if c["cmd"] == "api.output"]) == 3
+    server.script.append(FakeResponse("<html>502</html>", status_code=502))
+    with pytest.raises(XToolsTransportError) as info:
+        client.input("customer", {"cu_name": "x"})
+    assert info.value.status_code == 502
+    assert len([c for c in server.calls if c["cmd"] == "api.input"]) == 1
+
+
 def test_param_serialization_is_compact_and_unicode(env):
     client, server, _, _ = env
     client.login()
@@ -184,9 +218,16 @@ def test_param_serialization_is_compact_and_unicode(env):
 def test_non_json_response_is_transport_error(env):
     client, server, _, _ = env
     client.login()
-    server.script.append(FakeResponse("<html>502 Bad Gateway</html>", status_code=502))
-    with pytest.raises(XToolsTransportError):
+    server.script.append(FakeResponse("<html>维护中</html>", status_code=200))
+    with pytest.raises(XToolsTransportError) as info:
         client.output("customer")
+    assert "不是合法 JSON" in str(info.value)
+    # 非网关类 HTTP 错误（如 404）不重试，直接报错
+    server.script.append(FakeResponse("not found", status_code=404))
+    with pytest.raises(XToolsTransportError) as info:
+        client.output("customer")
+    assert info.value.status_code == 404
+    assert len([c for c in server.calls if c["cmd"] == "api.output"]) == 2
 
 
 def test_session_expired_class(env):

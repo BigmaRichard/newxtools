@@ -166,6 +166,106 @@ def test_rebuild_normalized_and_dictionaries(env):
     assert store.conn.execute("SELECT value FROM dictionaries WHERE dt='user' AND key='B1'").fetchone()[0] == "boss"
 
 
+def _many_contracts(n):
+    return [{"id": str(i), "No.": f"DD{i:05d}", "subject": f"订单{i}", "cu_sn": "C001", "status": "2", "sum": "1.00",
+             "date": "2026-03-01", "goods": []} for i in range(1, n + 1)]
+
+
+class FlakyClient(FakeClient):
+    """读取 fail_dt 表时，在第 fail_after 条记录之后抛网络异常一次，模拟拉取中途中断。"""
+
+    def __init__(self, fail_after, fail_dt="contract"):
+        super().__init__()
+        self.fail_after = fail_after
+        self.fail_dt = fail_dt
+        self.failed = False
+
+    def iter_output(self, dt_name, *, lastid=0, max_pages=None, **params):
+        from xtools import XToolsTransportError
+        for n, row in enumerate(super().iter_output(dt_name, lastid=lastid, **params), start=1):
+            if not self.failed and dt_name == self.fail_dt and n > self.fail_after:
+                self.failed = True
+                raise XToolsTransportError("请求失败（已重试 5 次）：Read timed out")
+            yield row
+
+
+def test_full_pull_resumes_from_checkpoint_after_interruption(env):
+    xt, store, syncer = env
+    xt.client = FlakyClient(fail_after=650)
+    seed(xt.client)
+    xt.client.tables["contract"] = _many_contracts(1000)
+    first = syncer.run("init", ["contract"])[0]
+    assert first["status"] == "error" and "Read timed out" in first["error"]
+    # 已写入的 600 条（3 个整批）保留，断点为 600，rows 计数与写入一致
+    assert first["rows"] == 600 and store.count_raw("contract") == 600
+    state = store.get_state("contract")
+    assert state["full_progress"] == 600 and state["last_full_at"] is None and state["full_started_at"]
+    # 下次普通增量运行：先补完全量（从 id>600 续拉），不做删除检测
+    second = syncer.run("incremental", ["contract"])[0]
+    assert second["status"] == "ok" and second["resumed"] is True
+    assert second["rows"] == 400 and second["inserted"] == 400 and second["deleted"] == 0
+    assert store.count_raw("contract") == 1000
+    state = store.get_state("contract")
+    assert state["full_progress"] is None and state["full_started_at"] is None and state["last_full_at"]
+    assert state["lastid"] == 1000
+    calls = [c for c in xt.client.calls if c[0] == "contract"]
+    assert calls[-1][1]["lastid"] == 600
+    # 之后进入正常增量（lastid + 活动订单重拉）
+    third = syncer.run("incremental", ["contract"])[0]
+    assert third["status"] == "ok" and third["resumed"] is False and third["inserted"] == 0
+
+
+def test_full_pull_bootstraps_from_legacy_partial_load(env):
+    """0.3.0 留下的半截首轮全量（无断点列值、last_full_at 为空、已有数据）：从镜像最大 id 续拉，不重读已有行。"""
+    xt, store, syncer = env
+    xt.client.tables["contract"] = _many_contracts(300)
+    rows = xt.client.tables["contract"][:120]
+    store.upsert_raw("contract", rows)
+    store.upsert_normalized(SPEC_BY_DT["contract"], rows)
+    store.set_state("contract", lastid=0, last_status="error", last_error="XToolsTransportError: Read timed out")
+    result = syncer.run("incremental", ["contract"])[0]
+    assert result["status"] == "ok" and result["resumed"] is True and result["rows"] == 180
+    assert store.count_raw("contract") == 300
+    calls = [c for c in xt.client.calls if c[0] == "contract"]
+    assert calls[0][1]["lastid"] == 120
+    assert store.get_state("contract")["last_full_at"] and store.get_state("contract")["full_progress"] is None
+
+
+def test_lastid_pull_checkpoints_progress(env):
+    xt, store, syncer = env
+    syncer.run("init", ["gathering_note"])
+    flaky = FlakyClient(fail_after=250, fail_dt="gathering_note")
+    flaky.tables = xt.client.tables
+    flaky.tables["gathering_note"] += [{"id": str(i), "cu_sn": "C001", "co_id": "1", "date": "2026-03-05", "money": "1.00", "type": "1"} for i in range(2, 500)]
+    xt.client = flaky
+    # 增量拉取在第 251 条中断：已整批写入的 200 条（id 2–201）保留，lastid 推进到 201
+    result = syncer.run("incremental", ["gathering_note"])[0]
+    assert result["status"] == "error" and result["rows"] == 200
+    assert store.count_raw("gathering_note") == 201
+    assert store.get_state("gathering_note")["lastid"] == 201
+    # 下次运行从 201 接着拉，不重读
+    result = syncer.run("incremental", ["gathering_note"])[0]
+    assert result["status"] == "ok" and result["inserted"] == 298
+    assert store.get_state("gathering_note")["lastid"] == 499
+    assert [c for c in flaky.calls if c[0] == "gathering_note"][-1][1]["lastid"] == 201
+
+
+def test_dictionary_undefined_fields_are_not_failures(env):
+    xt, store, syncer = env
+
+    def dictionary(dt_name, field):
+        from xtools import XToolsBusinessError
+        if field == "one_select":
+            raise XToolsBusinessError("读取异常", cmd="api.fieldinfo", dt=dt_name)
+        return [{"key": "1", "value": "选项1", "flag": "USE"}]
+
+    xt.client.dictionary = dictionary
+    summary = syncer.refresh_dictionaries()
+    assert not summary["failed"]
+    assert set(summary["undefined"]) == {"contract.one_select", "sendgoods.one_select", "libreturn.one_select", "purreturn.one_select"}
+    assert summary["dictionaries"] > 0
+
+
 def test_optional_table_failure_is_skipped(env):
     xt, store, syncer = env
 

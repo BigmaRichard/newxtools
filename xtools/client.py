@@ -178,10 +178,19 @@ class XToolsClient:
         if gap > 0:
             self._sleep(gap)
 
+    #: 读取类请求的重试次数与每次失败后的等待秒数（网络超时、DNS 抖动、网关 502/503/504）。
+    READ_ATTEMPTS = 5
+    RETRY_BACKOFF = (2.0, 5.0, 15.0, 30.0)
+    RETRY_STATUS = (502, 503, 504)
+
     def _send(self, fields: Dict[str, str], *, idempotent: bool = True) -> Dict[str, Any]:
-        """发送表单并返回解析后的 JSON；接口层错误（ok=0）在此转换为异常。"""
+        """发送表单并返回解析后的 JSON；接口层错误（ok=0）在此转换为异常。
+
+        idempotent=True（读取、登录）时遇网络异常或网关 502/503/504 自动重试，等待逐次拉长；
+        写入类请求（idempotent=False）只发送一次，避免重复写入。
+        """
         cmd = fields["cmd"]
-        attempts = 3 if idempotent else 1
+        attempts = self.READ_ATTEMPTS if idempotent else 1
         resp: Optional[requests.Response] = None
         for attempt in range(1, attempts + 1):
             self._throttle()
@@ -194,12 +203,15 @@ class XToolsClient:
                     timeout=self.config.timeout,
                     verify=self.config.verify_ssl,
                 )
-                break
+                if resp.status_code in self.RETRY_STATUS and attempt < attempts:
+                    logger.warning("网关 HTTP %d（第 %d/%d 次），稍后重试", resp.status_code, attempt, attempts)
+                else:
+                    break
             except requests.RequestException as exc:
                 logger.warning("网络异常（第 %d/%d 次）：%s", attempt, attempts, exc)
                 if attempt >= attempts:
-                    raise XToolsTransportError(f"请求失败：{exc}") from exc
-                self._sleep(min(2.0 * attempt, 5.0))
+                    raise XToolsTransportError(f"请求失败（已重试 {attempts} 次）：{exc}") from exc
+            self._sleep(self.RETRY_BACKOFF[min(attempt, len(self.RETRY_BACKOFF)) - 1])
         assert resp is not None
 
         if resp.status_code != 200:

@@ -2,7 +2,8 @@
 
 表结构：
     raw_records     原始 JSON（dt + id 主键），含 source_hash / first_seen / updated_at / fetched_at / deleted_at
-    sync_state      每表游标：lastid、lasttime、last_full_at、last_run_at、last_status、last_rows、last_error
+    sync_state      每表游标：lastid、lasttime、last_full_at、last_run_at、last_status、last_rows、last_error，
+                    以及全量拉取断点 full_progress（已写入的最大 id）/ full_started_at（本轮全量开始时间），完成后清空
     dictionaries    数据字典（dt, field, key → value, flag）
     field_names     字段中文名（dt, field → name）
     crm_user 等     规范化表：由 specs.TABLE_SPECS 定义，列名由 JSON 键清洗而来，值一律以文本存储（SQLite 动态类型）
@@ -74,7 +75,8 @@ class Store:
             CREATE INDEX IF NOT EXISTS ix_raw_updated ON raw_records (dt, updated_at);
             CREATE TABLE IF NOT EXISTS sync_state (
                 dt TEXT PRIMARY KEY, lastid INTEGER DEFAULT 0, lasttime TEXT, last_full_at TEXT, last_run_at TEXT,
-                last_status TEXT, last_rows INTEGER DEFAULT 0, last_error TEXT, total_rows INTEGER DEFAULT 0
+                last_status TEXT, last_rows INTEGER DEFAULT 0, last_error TEXT, total_rows INTEGER DEFAULT 0,
+                full_progress INTEGER, full_started_at TEXT
             );
             CREATE TABLE IF NOT EXISTS dictionaries (
                 dt TEXT NOT NULL, field TEXT NOT NULL, key TEXT NOT NULL, value TEXT, flag TEXT, fetched_at TEXT,
@@ -89,6 +91,11 @@ class Store:
             );
             """
         )
+        # 旧库补列：全量拉取断点（0.3.1 起）
+        existing = {r[1] for r in c.execute("PRAGMA table_info(sync_state)")}
+        for col, typ in (("full_progress", "INTEGER"), ("full_started_at", "TEXT")):
+            if col not in existing:
+                c.execute(f"ALTER TABLE sync_state ADD COLUMN {col} {typ}")
         for spec in TABLE_SPECS:
             self._ensure_normalized_table(spec)
         self._ensure_views()
@@ -163,26 +170,43 @@ class Store:
             self.conn.execute(f"CREATE VIEW {name} AS {sql}")
 
     # ------------------------------------------------------------------ sync_state
+    STATE_FIELDS = ("lastid", "lasttime", "last_full_at", "last_run_at", "last_status", "last_rows", "last_error",
+                    "total_rows", "full_progress", "full_started_at")
+
     def get_state(self, dt_name: str) -> Dict[str, Any]:
         row = self.conn.execute("SELECT * FROM sync_state WHERE dt = ?", (dt_name,)).fetchone()
         if row is None:
             return {"dt": dt_name, "lastid": 0, "lasttime": None, "last_full_at": None, "last_run_at": None,
-                    "last_status": None, "last_rows": 0, "last_error": None, "total_rows": 0}
+                    "last_status": None, "last_rows": 0, "last_error": None, "total_rows": 0,
+                    "full_progress": None, "full_started_at": None}
         return dict(row)
 
     def set_state(self, dt_name: str, **fields: Any) -> None:
         state = self.get_state(dt_name)
         state.update(fields)
         state["total_rows"] = self.count_raw(dt_name)
+        cols = ("dt", *self.STATE_FIELDS)
         self.conn.execute(
-            """INSERT INTO sync_state (dt, lastid, lasttime, last_full_at, last_run_at, last_status, last_rows, last_error, total_rows)
-               VALUES (:dt, :lastid, :lasttime, :last_full_at, :last_run_at, :last_status, :last_rows, :last_error, :total_rows)
-               ON CONFLICT(dt) DO UPDATE SET lastid=excluded.lastid, lasttime=excluded.lasttime, last_full_at=excluded.last_full_at,
-               last_run_at=excluded.last_run_at, last_status=excluded.last_status, last_rows=excluded.last_rows,
-               last_error=excluded.last_error, total_rows=excluded.total_rows""",
+            f"INSERT INTO sync_state ({', '.join(cols)}) VALUES ({', '.join(':' + c for c in cols)}) "
+            "ON CONFLICT(dt) DO UPDATE SET " + ", ".join(f"{c}=excluded.{c}" for c in self.STATE_FIELDS),
             state,
         )
         self.conn.commit()
+
+    def checkpoint(self, dt_name: str, **fields: Any) -> None:
+        """全量 / 增量拉取过程中的轻量断点（只更新给定列，不重算行数）。"""
+        if self.conn.execute("SELECT 1 FROM sync_state WHERE dt = ?", (dt_name,)).fetchone() is None:
+            self.set_state(dt_name, **fields)
+            return
+        self.conn.execute(
+            f"UPDATE sync_state SET {', '.join(f'{c} = :{c}' for c in fields)} WHERE dt = :dt",
+            {"dt": dt_name, **fields},
+        )
+        self.conn.commit()
+
+    def min_first_seen(self, dt_name: str) -> Optional[str]:
+        row = self.conn.execute("SELECT MIN(first_seen) FROM raw_records WHERE dt = ?", (dt_name,)).fetchone()
+        return row[0] if row and row[0] else None
 
     def all_states(self) -> List[Dict[str, Any]]:
         return [dict(r) for r in self.conn.execute("SELECT * FROM sync_state ORDER BY dt")]

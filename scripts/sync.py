@@ -31,6 +31,8 @@ sys.path.insert(0, str(ROOT))
 from sync import SPEC_BY_DT, Store, Syncer, TABLE_SPECS  # noqa: E402
 from xtools import XTools, XToolsConfig, XToolsError  # noqa: E402
 
+SYNC_DEFAULT_TIMEOUT = 120  # 秒；.env 中 XTOOLS_TIMEOUT 优先
+
 
 def setup_logging(verbose: bool) -> None:
     log_dir = ROOT / "logs"
@@ -52,10 +54,11 @@ def print_status(store: Store) -> None:
     if not rows:
         print("尚未同步过。")
         return
-    print(f"{'表':<16}{'镜像行数':>8}  {'lastid':>8}  {'lasttime':<20}{'上次全量':<20}{'上次运行':<20}{'状态':<8}错误")
+    print(f"{'表':<16}{'镜像行数':>8}  {'lastid':>8}  {'lasttime':<20}{'上次全量':<20}{'上次运行':<20}{'状态':<8}{'全量断点':>8}  错误")
     for r in rows:
+        progress = r.get("full_progress")
         print(f"{r['dt']:<16}{r['total_rows']:>8}  {r['lastid'] or 0:>8}  {(r['lasttime'] or '')[:19]:<20}{(r['last_full_at'] or '')[:19]:<20}"
-              f"{(r['last_run_at'] or '')[:19]:<20}{(r['last_status'] or ''):<8}{(r['last_error'] or '')[:60]}")
+              f"{(r['last_run_at'] or '')[:19]:<20}{(r['last_status'] or ''):<8}{('' if progress is None else progress):>8}  {(r['last_error'] or '')[:60]}")
 
 
 def main() -> int:
@@ -100,11 +103,12 @@ def main() -> int:
         return 3
 
     try:
-        config = XToolsConfig.from_env()
+        # 正式公司订单等表带 extend=1 时单页可能超过 30 秒，同步默认超时 120 秒（.env 的 XTOOLS_TIMEOUT 优先）
+        config = XToolsConfig.from_env(defaults={"timeout": SYNC_DEFAULT_TIMEOUT})
     except XToolsError as exc:
         log.error("配置错误：%s", exc)
         return 2
-    log.info("开始：com=%s part=%s 库=%s", config.com, config.part, args.db)
+    log.info("开始：com=%s part=%s 库=%s 超时=%.0fs", config.com, config.part, args.db, config.timeout)
     xt = XTools(config)
     syncer = Syncer(xt, store)
     t0 = time.time()
@@ -123,6 +127,9 @@ def main() -> int:
     log.info("结束：%d 张表，读取 %d 条，新增 %d，更新 %d，删除 %d，失败 %d，用时 %.0fs",
              len(results), total, sum(r["inserted"] for r in results), sum(r["updated"] for r in results),
              sum(r["deleted"] for r in results), len(errors), time.time() - t0)
+    if errors:
+        log.warning("失败的表：%s；已写入的数据保留，下次运行（含 launchd 定时）自动从断点续拉，也可立即重跑：python scripts/sync.py --table %s",
+                    ", ".join(r["dt"] for r in errors), ",".join(r["dt"] for r in errors))
     if args.verbose:
         print(json.dumps(results, ensure_ascii=False, indent=1))
     return 1 if errors else 0

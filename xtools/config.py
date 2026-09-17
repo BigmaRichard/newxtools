@@ -80,10 +80,12 @@ class XToolsConfig:
         self.sid_cache = Path(self.sid_cache)
 
     @classmethod
-    def from_env(cls, **overrides) -> "XToolsConfig":
-        """从环境变量 / .env 读取配置；overrides 用于显式覆盖。"""
+    def from_env(cls, defaults: Optional[Dict[str, object]] = None, **overrides) -> "XToolsConfig":
+        """从环境变量 / .env 读取配置；overrides 用于显式覆盖，defaults 只在环境未提供该项时生效。"""
         env = dict(_load_dotenv())
         env.update({k: v for k, v in os.environ.items() if k.startswith("XTOOLS_")})
+        for name, value in (defaults or {}).items():
+            env.setdefault(f"XTOOLS_{name.upper()}", str(value))
 
         def get(name: str, default: Optional[str] = None) -> Optional[str]:
             return env.get(f"XTOOLS_{name.upper()}", default)
