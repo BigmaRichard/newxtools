@@ -718,7 +718,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def make_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:
+def make_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8790) -> ThreadingHTTPServer:
     mirror = Mirror(db_path)
     handler = type("BoundHandler", (Handler,), {"mirror": mirror})
     server = ThreadingHTTPServer((host, port), handler)

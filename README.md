@@ -28,7 +28,7 @@ newxtools/
 │   ├── smoke_test.py         只读冒烟测试（登录、字典、四模块各读一页）
 │   ├── roundtrip_test.py     联调回环测试：测试公司内写入产品 / 客户 / 联系人 / 订单 / 回款并回读核对（可重复执行）
 │   ├── sync.py               只读镜像 CLI：--init / 增量 / --full / --status / --dict / --rebuild
-│   ├── web.py                本地前台：http://127.0.0.1:8765
+│   ├── web.py                本地前台：http://127.0.0.1:8790
 │   ├── install_launchd.py    Mac launchd：同步定时任务（每 30 分钟）/ --web 前台常驻
 │   ├── dump_dictionary.py    导出数据字典、字段中文名、人员对照
 │   └── export_table.py       按 lastid / lasttime 导出任一表为 JSONL
@@ -79,7 +79,7 @@ cd newxtools && .venv/bin/python scripts/sync.py --init; .venv/bin/python script
 本地前台：安装为常驻服务并在浏览器打开（详见《docs/07_本地前台使用说明.md》）：
 
 ```
-cd newxtools && .venv/bin/python scripts/install_launchd.py --web && open http://127.0.0.1:8765
+cd newxtools && .venv/bin/python scripts/install_launchd.py --web && open http://127.0.0.1:8790
 ```
 
 ## 代码示例
