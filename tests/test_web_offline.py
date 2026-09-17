@@ -60,6 +60,8 @@ def seed(store: Store) -> None:
         {"id": "1", "cale": "3", "subject": "上门拜访", "content": "上门拜访", "type": "2", "cu_sn": "[id:1]", "con_id": "101", "who": ",M9,", "date": TODAY.isoformat(), "endate": TODAY.isoformat(), "co_id": "11"},
         {"id": "2", "cale": "3", "subject": "电话", "content": "电话沟通详情", "type": "1", "cu_sn": "[id:2]", "con_id": "", "who": "M23,", "date": TODAY.isoformat(), "endate": TODAY.isoformat()},
         {"id": "3", "cale": "3", "subject": "很久以前", "content": "", "type": "1", "cu_sn": "[id:1]", "con_id": "", "who": ",M9,M23,", "date": "2020-01-01", "endate": "2020-01-01"},
+        {"id": "4", "cale": "3", "subject": "日期录错", "content": "", "type": "1", "cu_sn": "[id:1]", "con_id": "", "who": ",M9,", "date": "2224-06-12", "endate": "2224-06-12"},
+        {"id": "5", "cale": "4", "subject": "没有日期的待办", "content": "", "type": "", "cu_sn": "[id:1]", "con_id": "", "who": ",M9,", "date": "", "endate": ""},
     ]
     for dt_name, rows in [("user", users), ("customer", customers), ("product", products), ("contract", contracts), ("gathering_note", notes), ("gathering", plans),
                           ("sendgoods", sends), ("libout", libouts), ("action", actions)]:
@@ -202,12 +204,16 @@ def test_receipts_filters_and_summary(q):
 
 def test_actions_who_codes_and_summaries(q):
     res = q(**{"from": TODAY.isoformat()}).actions()
-    assert res["total"] == 2
-    assert {r["id"]: r["who"] for r in res["rows"]} == {1: ["王勇尊"], 2: ["李勇刚(离职)"]}
+    assert res["total"] == 3  # 含一条日期录成 2224 年的记录
+    assert {r["id"]: r["who"] for r in res["rows"]} == {1: ["王勇尊"], 2: ["李勇刚(离职)"], 4: ["王勇尊"]}
     row = next(r for r in res["rows"] if r["id"] == 1)
-    assert row["contact"] == "张三" and row["content"] == "" and row["order_id"] == 11 and row["type_text"] == "市内拜访"
+    assert row["contact"] == "张三" and row["content"] == "" and row["order_id"] == 11 and row["type_text"] == "市内拜访" and row["date_flag"] == ""
+    assert next(r for r in res["rows"] if r["id"] == 4)["date_flag"] == "future"
+    assert [d["date"] for d in res["by_day"]] == [TODAY.isoformat()]  # 未来日期不进按日统计
     assert q(who="M23").actions()["total"] == 2  # 单独与多人记录都命中
-    assert {w["part"]: w["count"] for w in q().actions()["by_who"]} == {"M9": 2, "M23": 2}
+    everything = q().actions()
+    assert {w["part"]: w["count"] for w in everything["by_who"]} == {"M9": 4, "M23": 2}
+    assert next(r for r in everything["rows"] if r["id"] == 5)["date_flag"] == "invalid"
     assert q(q="沟通").actions()["rows"][0]["content"] == "电话沟通详情"
 
 

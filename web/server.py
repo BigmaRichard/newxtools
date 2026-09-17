@@ -62,8 +62,12 @@ def _int(value: Any, default: int = 0) -> int:
         return default
 
 
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
 def _valid_date(value: Any) -> bool:
-    return isinstance(value, str) and len(value) == 10 and value[:2] == "20"
+    """形如 YYYY-MM-DD（不判断年份是否合理；年份异常由 Query.date_flag 标记）。"""
+    return isinstance(value, str) and bool(_DATE_RE.match(value))
 
 
 class Lookups:
@@ -591,10 +595,17 @@ class Query:
                 "rows": [self.receipt_row(n) for n in rows]}
 
     # ---- 工作日志（行动记录）
+    def date_flag(self, value: Any) -> str:
+        """日期质量标记：future = 晚于今天（录入错误，如 2224-06-12）；invalid = 空或格式异常；正常为空串。"""
+        if not _valid_date(value):
+            return "invalid"
+        return "future" if value > self.today.isoformat() else ""
+
     def action_row(self, a: Dict[str, Any]) -> Dict[str, Any]:
         subject, content = a.get("subject") or "", a.get("content") or ""
         return {
-            "id": a["id"], "date": a.get("date"), "end_date": a.get("endate"), "cale_text": self.lk.text("action", "cale", a.get("cale")),
+            "id": a["id"], "date": a.get("date"), "end_date": a.get("endate"), "date_flag": self.date_flag(a.get("date")),
+            "cale_text": self.lk.text("action", "cale", a.get("cale")),
             "type": a.get("type"), "type_text": self.lk.text("action", "type", a.get("type")), "who": self.lk.names_from_codes(a.get("who")),
             "customer": self.lk.customer(a.get("cu_sn")), "contact": a.get("contact_name"), "subject": subject,
             "content": content if content != subject else "", "order_id": _int(a.get("co_id"), 0) or None,
@@ -622,7 +633,8 @@ class Query:
         total = (self.one(f"SELECT COUNT(*) n FROM action a{where}", args) or {}).get("n") or 0
         by_type = [{"type": r["type"], "text": self.lk.text("action", "type", r["type"]) or "未分类", "count": r["n"]}
                    for r in self.rows(f"SELECT a.type, COUNT(*) n FROM action a{where} GROUP BY a.type ORDER BY n DESC", args)]
-        by_day = [{"date": r["d"], "count": r["n"]} for r in self.rows(f"SELECT a.date d, COUNT(*) n FROM action a{where} GROUP BY a.date ORDER BY d DESC LIMIT 62", args)][::-1]
+        by_day = [{"date": r["d"], "count": r["n"]} for r in self.rows(
+            f"SELECT a.date d, COUNT(*) n FROM action a{where} AND a.date LIKE '____-__-__' AND a.date <= ? GROUP BY a.date ORDER BY d DESC LIMIT 62", [*args, self.today.isoformat()])][::-1]
         who_counts: Dict[str, int] = {}
         for r in self.rows(f"SELECT a.who, COUNT(*) n FROM action a{where} GROUP BY a.who", args):
             for code in [p for p in str(r["who"] or "").split(",") if p.strip()] or [str(r["who"] or "")]:

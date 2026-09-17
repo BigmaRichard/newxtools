@@ -118,7 +118,7 @@ TABLE_SPECS: List[TableSpec] = [
               extend=1, full_every_hours=24, note="销售机会"),
     TableSpec("action", "action", "lastid",
               ["cale", "subject", "content", "type", "cu_sn", "con_id", "who", "date", "endate", "op_id", "prj_id", "co_id"],
-              note="行动记录 / 待办"),
+              full_every_hours=24 * 7, note="行动记录 / 待办（6 万条；读取接口无 lasttime，修改靠每周全量体现）"),
     TableSpec("sr_notice", "sr_notice", "lastid",
               ["subject", "cu_sn", "lib", "libname", "erp_no", "type", "mid", "status", "who", "memo", "name", "mphone", "addr",
                "date", "eta", "sendcomp", "sendcode"],
