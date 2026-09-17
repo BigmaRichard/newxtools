@@ -376,9 +376,17 @@ class XToolsClient:
         return list(data or [])
 
     def field_names(self, dt: str) -> Dict[str, str]:
-        """字段英文名 → 中文名。"""
+        """字段英文名 → 中文名。服务器返回对象；若返回 [{key,value}] 列表也兼容。"""
         data = self.fieldinfo(dt, act="dbcn")
-        return dict(data or {})
+        if isinstance(data, dict):
+            return {str(k): ("" if v is None else str(v)) for k, v in data.items()}
+        result: Dict[str, str] = {}
+        for item in data or []:
+            if isinstance(item, dict):
+                key = item.get("key", item.get("field"))
+                if key is not None:
+                    result[str(key)] = str(item.get("value", item.get("name", "")))
+        return result
 
     def users(self, *, part: Optional[str] = None, name: Optional[str] = None) -> List[Dict[str, Any]]:
         """人员 part 与姓名对照；不传参数返回全体人员。"""
