@@ -19,6 +19,7 @@ newxtools/
 │   └── api/                  按模块封装：customers / orders / products / finance / aftersales
 ├── scripts/
 │   ├── smoke_test.py         只读冒烟测试（登录、字典、四模块各读一页）
+│   ├── roundtrip_test.py     联调回环测试：测试公司内写入产品 / 客户 / 联系人 / 订单 / 回款并回读核对（可重复执行）
 │   ├── dump_dictionary.py    导出数据字典、字段中文名、人员对照
 │   └── export_table.py       按 lastid / lasttime 导出任一表为 JSONL
 ├── tests/
@@ -47,6 +48,12 @@ cd newxtools && python3 -m pip install -r requirements.txt && python3 -m pytest 
 
 ```
 cd newxtools && python3 scripts/smoke_test.py --verbose
+```
+
+在测试公司做写入回环（产品 → 客户与联系人 → 联系人修改 → 客户修改 → 订单 → 回款，全部回读核对；正式公司默认拒绝执行）：
+
+```
+cd newxtools && python3 scripts/roundtrip_test.py
 ```
 
 ## 代码示例
