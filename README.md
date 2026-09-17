@@ -21,17 +21,22 @@ newxtools/
 │   ├── specs.py              各表同步规格（模式、列、子表、重拉条件）
 │   ├── store.py              SQLite：原始 JSON 表、规范化表、游标、字典、报表视图
 │   └── engine.py             全量 / 增量 / 定期重拉 / 删除检测 / 字典刷新
+├── web/                      本地前台（只读 HTTP 服务 + 单页界面）
+│   ├── server.py             JSON API：总览 / 订单 / 客户 / 应收回款 / 工作日志
+│   └── static/index.html     页面（无外部依赖）
 ├── scripts/
 │   ├── smoke_test.py         只读冒烟测试（登录、字典、四模块各读一页）
 │   ├── roundtrip_test.py     联调回环测试：测试公司内写入产品 / 客户 / 联系人 / 订单 / 回款并回读核对（可重复执行）
 │   ├── sync.py               只读镜像 CLI：--init / 增量 / --full / --status / --dict / --rebuild
-│   ├── install_launchd.py    Mac 定时任务（每 30 分钟增量）
+│   ├── web.py                本地前台：http://127.0.0.1:8765
+│   ├── install_launchd.py    Mac launchd：同步定时任务（每 30 分钟）/ --web 前台常驻
 │   ├── dump_dictionary.py    导出数据字典、字段中文名、人员对照
 │   └── export_table.py       按 lastid / lasttime 导出任一表为 JSONL
 ├── tests/
 │   ├── test_sign.py          签名离线测试（文档示例）
 │   ├── test_client_offline.py 登录 / 重登 / 限频 / 分页 / 错误映射（假服务器）
-│   └── test_sync_offline.py  镜像：全量 / 增量 / 删除检测 / 视图 / 字典（内存假数据）
+│   ├── test_sync_offline.py  镜像：全量 / 增量 / 断点续拉 / 删除检测 / 视图 / 字典（内存假数据）
+│   └── test_web_offline.py   前台 API（小型镜像库）
 └── docs/
     ├── 00_文档版本变更记录.md      文档各版本差异与仓库对应调整
     ├── 01_接入准备清单.md          凭证、开通确认、环境、验收标准、风险
@@ -40,6 +45,7 @@ newxtools/
     ├── 04_首批四模块字段映射.md    客户 / 订单 / 产品 / 财务的字段与枚举
     ├── 05_同步方案设计.md          架构、读取策略、写回流程、阶段计划
     ├── 06_P0只读镜像使用说明.md    运行命令、同步策略、库结构与视图、常见问题
+    ├── 07_本地前台使用说明.md      安装、页面、数据口径、接口
     ├── XToolsCRM_OPEN_API_参考_20260901.md   原文档整理版（逐接口）
     └── XTools接入架构泳道全景图.html / .pdf
 ```
@@ -68,6 +74,12 @@ P0 只读镜像：首次全量并安装每 30 分钟一次的定时增量（详�
 
 ```
 cd newxtools && .venv/bin/python scripts/sync.py --init; .venv/bin/python scripts/install_launchd.py
+```
+
+本地前台：安装为常驻服务并在浏览器打开（详见《docs/07_本地前台使用说明.md》）：
+
+```
+cd newxtools && .venv/bin/python scripts/install_launchd.py --web && open http://127.0.0.1:8765
 ```
 
 ## 代码示例

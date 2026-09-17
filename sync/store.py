@@ -56,7 +56,7 @@ class Store:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.path))
+        self.conn = sqlite3.connect(str(self.path), timeout=120)  # 与同步 / 前台并发时等待写锁
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
@@ -98,8 +98,29 @@ class Store:
                 c.execute(f"ALTER TABLE sync_state ADD COLUMN {col} {typ}")
         for spec in TABLE_SPECS:
             self._ensure_normalized_table(spec)
+        self._ensure_indexes()
         self._ensure_views()
         c.commit()
+
+    #: 规范化表的查询索引（报表视图与本地前台使用）
+    INDEXES = {
+        "customer": ["sn", "cu_name", "owner", "life"],
+        "contract": ["cu_sn", "date", "no_", "who", "status"],
+        "contract_goods": ["prod"],
+        "gathering_note": ["co_id", "cu_sn", "date", "who"],
+        "gathering": ["co_sn", "cu_sn", "date", "status", "who"],
+        "action": ["date", "cu_sn", "who"],
+        "sendgoods": ["co_id", "cu_sn", "date"],
+        "libout": ["co_sn", "cu_sn", "date"],
+        "product": ["sn"],
+    }
+
+    def _ensure_indexes(self) -> None:
+        for table, cols in self.INDEXES.items():
+            existing = {r[1] for r in self.conn.execute(f'PRAGMA table_info("{table}")')}
+            for col in cols:
+                if col in existing:
+                    self.conn.execute(f'CREATE INDEX IF NOT EXISTS "ix_{table}_{col}" ON "{table}" ("{col}")')
 
     def _ensure_normalized_table(self, spec: TableSpec) -> None:
         cols = ", ".join(f'"{col_name(k)}" TEXT' for k in spec.columns)
@@ -124,8 +145,14 @@ class Store:
                 if col_name(k) not in existing:
                     self.conn.execute(f'ALTER TABLE "{child.table}" ADD COLUMN "{col_name(k)}" TEXT')
 
+    @staticmethod
+    def customer_id_expr(alias: str) -> str:
+        """把 cu_sn（"[id:N]" 或客户编号 sn）解析为 customer.id 的 SQL 表达式；两种形式都走索引。"""
+        return (f"CASE WHEN {alias}.cu_sn LIKE '[id:%]' THEN CAST(substr({alias}.cu_sn, 5, length({alias}.cu_sn) - 5) AS INTEGER) "
+                f"ELSE (SELECT s.id FROM customer s WHERE s.sn = {alias}.cu_sn AND s.sn <> '' LIMIT 1) END")
+
     def _ensure_views(self) -> None:
-        cust_join = "LEFT JOIN customer c ON (c.sn = {t}.cu_sn AND c.sn <> '') OR ('[id:' || c.id || ']') = {t}.cu_sn"
+        cust_join = "LEFT JOIN customer c ON c.id = " + self.customer_id_expr("{t}")
         views = {
             "v_contract": f"""
                 SELECT o.id, o.no_ AS order_no, o.subject, o.cu_sn, c.id AS customer_id, c.cu_name, o.status, o.confirm, o.st_send,
@@ -156,9 +183,9 @@ class Store:
                 GROUP BY substr(date, 1, 7) ORDER BY month""",
             "v_customer_overview": """
                 SELECT c.id, c.sn, c.cu_name, c.life, c.cu_status, c.owner, c.state, c.city, c.creatdate, c.moddate,
-                       (SELECT COUNT(*) FROM contract o WHERE o._deleted_at IS NULL AND (o.cu_sn = c.sn AND c.sn <> '' OR o.cu_sn = '[id:' || c.id || ']')) AS orders,
-                       (SELECT SUM(CAST(o.sum AS REAL)) FROM contract o WHERE o._deleted_at IS NULL AND (o.cu_sn = c.sn AND c.sn <> '' OR o.cu_sn = '[id:' || c.id || ']')) AS order_amount,
-                       (SELECT SUM(CAST(n.money AS REAL)) FROM gathering_note n WHERE n._deleted_at IS NULL AND (n.cu_sn = c.sn AND c.sn <> '' OR n.cu_sn = '[id:' || c.id || ']')) AS receipt_amount,
+                       (SELECT COUNT(*) FROM contract o WHERE o._deleted_at IS NULL AND (o.cu_sn = '[id:' || c.id || ']' OR (c.sn <> '' AND o.cu_sn = c.sn))) AS orders,
+                       (SELECT SUM(CAST(o.sum AS REAL)) FROM contract o WHERE o._deleted_at IS NULL AND (o.cu_sn = '[id:' || c.id || ']' OR (c.sn <> '' AND o.cu_sn = c.sn))) AS order_amount,
+                       (SELECT SUM(CAST(n.money AS REAL)) FROM gathering_note n WHERE n._deleted_at IS NULL AND (n.cu_sn = '[id:' || c.id || ']' OR (c.sn <> '' AND n.cu_sn = c.sn))) AS receipt_amount,
                        (SELECT COUNT(*) FROM contact k WHERE k.customer_id = c.id) AS contacts
                 FROM customer c WHERE c._deleted_at IS NULL""",
             "v_receivable": """
