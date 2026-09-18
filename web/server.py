@@ -486,15 +486,17 @@ class Query(ReportQueries):
             {"name": r["who"], "count": r["n"], "amount": money(r["a"])}
             for r in self.rows(f"SELECT o.who, COUNT(*) n, SUM(CAST(o.sum AS REAL)) a {base} AND o.date >= ? AND o.date < ? GROUP BY o.who ORDER BY a DESC LIMIT 10", [CANCELLED, y_from, y_to])
         ]
-        top_products = []
-        for r in self.rows(
-            "SELECT g.prod, MAX(g.prod_name) pn, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, COUNT(DISTINCT g.contract_id) n "
-            "FROM contract_goods g JOIN contract o ON o.id = g.contract_id "
-            "WHERE o._deleted_at IS NULL AND o.status <> ? AND o.date >= ? AND o.date < ? GROUP BY g.prod ORDER BY a DESC LIMIT 10",
-            [CANCELLED, y_from, y_to],
-        ):
-            prod = self.lk.product(r["prod"]) or {}
-            top_products.append({"id": prod.get("id"), "sn": prod.get("sn") or r["prod"], "name": prod.get("name") or r["pn"] or r["prod"], "model": prod.get("model") or "", "amount": money(r["a"]), "quantity": r["q"], "orders": r["n"]})
+        top_products = [      # 按型号（product.name）合并各批号
+            {"model_name": r["k"], "name": r["k"], "class": r["pcls"] or "", "batches": r["batches"] or 0,
+             "amount": money(r["a"]), "quantity": r["q"], "orders": r["n"]}
+            for r in self.rows(
+                "SELECT COALESCE(NULLIF(p.name, ''), NULLIF(g.prod_name, ''), g.prod) k, MAX(COALESCE(p.class, '')) pcls, COUNT(DISTINCT g.prod) batches, "
+                "SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, COUNT(DISTINCT g.contract_id) n "
+                f"FROM contract_goods g JOIN contract o ON o.id = g.contract_id {PRODUCT_JOIN} "
+                "WHERE o._deleted_at IS NULL AND o.status <> ? AND o.date >= ? AND o.date < ? GROUP BY k ORDER BY a DESC LIMIT 10",
+                [CANCELLED, y_from, y_to],
+            )
+        ]
         status_mix = [
             {"status": r["status"], "text": self.lk.text("contract", "status", r["status"]), "count": r["n"], "amount": money(r["a"])}
             for r in self.rows("SELECT status, COUNT(*) n, SUM(CAST(sum AS REAL)) a FROM contract WHERE _deleted_at IS NULL AND date >= ? AND date < ? GROUP BY status ORDER BY n DESC", [y_from, y_to])
@@ -575,11 +577,15 @@ class Query(ReportQueries):
         if self.get("owner"):
             args.extend([self.get("owner"), self.get("owner")])
             clauses.append("(o.cu_sn IN (SELECT '[id:' || id || ']' FROM customer WHERE owner = ?) OR o.cu_sn IN (SELECT sn FROM customer WHERE sn <> '' AND owner = ?))")
-        if self.get("prod"):  # 含某产品的订单（编号或 "[id:N]" 两种引用都算）
+        if self.get("prod"):  # 单个批号：编号或 "[id:N]" 两种引用都算；解析不到时当型号名，匹配该型号下所有批号
             prod = self.lk.product(self.get("prod"))
-            keys = [prod.get("sn") or "", f"[id:{prod['id']}]"] if prod else [self.get("prod"), ""]
-            clauses.append("o.id IN (SELECT contract_id FROM contract_goods WHERE prod IN (?, ?))")
-            args.extend(keys)
+            if prod:
+                clauses.append("o.id IN (SELECT contract_id FROM contract_goods WHERE prod IN (?, ?))")
+                args.extend([prod.get("sn") or "\0", f"[id:{prod['id']}]"])
+            else:
+                clauses.append("o.id IN (SELECT contract_id FROM contract_goods WHERE prod IN "
+                               "(SELECT sn FROM product WHERE name = ? AND sn <> '' UNION ALL SELECT '[id:' || id || ']' FROM product WHERE name = ?))")
+                args.extend([self.get("prod"), self.get("prod")])
         if self.get("class"):
             clauses.append(f"o.id IN (SELECT g.contract_id FROM contract_goods g {PRODUCT_JOIN} WHERE COALESCE(p.class, '') = ?)")
             args.append(self.get("class"))

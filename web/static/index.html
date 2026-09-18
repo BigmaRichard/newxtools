@@ -400,7 +400,8 @@ function bindLinks(root) {
   root.querySelectorAll('a[data-purchase]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openPurchase(Number(a.dataset.purchase)); }));
   root.querySelectorAll('a[data-who]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); go('salesperson', { who: a.dataset.who }); }));
 }
-const prodLink = (p) => p && (p.id || p.sn) ? `<a data-prod="${esc(p.id || p.sn)}">${esc(p.name || p.sn)}</a>` : esc((p && p.name) || '');
+const prodLink = (p) => p && p.model_name ? `<a data-prod="model:${esc(p.model_name)}">${esc(p.model_name)}</a>`
+  : p && (p.id || p.sn) ? `<a data-prod="${esc(p.id || p.sn)}">${esc(p.name || p.sn)}</a>` : esc((p && p.name) || '');
 const whoLink = (name) => name ? `<a data-who="${esc(name)}" title="打开业务员看板">${esc(name)}</a>` : '<span class="muted">—</span>';
 const SERIES = ['var(--s1)', 'var(--s2)', 'var(--s3)', '#8e5bd6', '#c9a227', '#3aa0b8', '#b85c8a', '#6b7280'];
 // 跳转到某页并带参数（同页时重新渲染）
@@ -524,7 +525,7 @@ async function pageOverview(view, params) {
     <div class="grid row3" style="margin-top:14px">
       <div class="card"><h2>${year} 年客户 Top 10</h2><table class="top-list"><tbody>${topRows(d.top_customers, (c) => custLink(c.customer), (c) => `${fmtInt(c.count)} 单`)}</tbody></table></div>
       <div class="card"><h2>${year} 年业务员 Top 10</h2><table class="top-list"><tbody>${topRows(d.top_sales, (s) => whoLink(s.name), (s) => `${fmtInt(s.count)} 单`)}</tbody></table></div>
-      <div class="card"><h2>${year} 年产品 Top 10（按明细金额）</h2><table class="top-list"><tbody>${topRows(d.top_products, (p) => `${prodLink(p)}<div class="muted small">${esc(p.sn)} ${esc(p.model || '')}</div>`, (p) => `${fmtInt(p.orders)} 单`)}</tbody></table></div>
+      <div class="card"><h2>${year} 年产品 Top 10（按型号 · 明细金额）</h2><table class="top-list"><tbody>${topRows(d.top_products, (p) => `${prodLink(p)}<div class="muted small">${esc(p.class || '')}${p.batches > 1 ? ` · ${fmtInt(p.batches)} 个批号` : ''}</div>`, (p) => `${fmtInt(p.orders)} 单`)}</tbody></table></div>
     </div>`;
   const months = d.monthly.filter((m) => m.month.startsWith(String(year)));
   const prev = d.monthly.filter((m) => m.month.startsWith(String(year - 1)));
@@ -562,7 +563,7 @@ async function pageOrders(view, params) {
       <button class="btn" id="reset">清空</button>
       ${exportButton('orders')}
     </div>
-    ${hidden.length ? `<div class="crumbs" id="crumbs">${hidden.map((k) => `<span class="crumb"><b>${{ prod: '产品', class: '分类', group: '大类', month: '月份', state: '地区', type: '类型', owner: '所有者' }[k]}</b> ${esc(f[k])} <a data-clear="${k}" title="去掉此条件">×</a></span>`).join('')}</div>` : ''}
+    ${hidden.length ? `<div class="crumbs" id="crumbs">${hidden.map((k) => `<span class="crumb"><b>${{ prod: '产品型号', class: '分类', group: '大类', month: '月份', state: '地区', type: '类型', owner: '所有者' }[k]}</b> ${esc(f[k])} <a data-clear="${k}" title="去掉此条件">×</a></span>`).join('')}</div>` : ''}
     <div class="card"><div id="list"><div class="empty">加载中…</div></div></div>`;
   const load = async (page) => {
     const q = { ...readFilters($('#filters')), page };
@@ -750,15 +751,15 @@ async function pageActions(view, params) {
 }
 
 // ------------------------------------------------------------------ 页面：销售分析（0.5）
-const SALES_DIMS = [['who', '业务员'], ['customer', '客户'], ['product', '产品'], ['class', '产品分类'], ['group', '产品大类'], ['region', '地区'], ['type', '订单类型'], ['month', '月份']];
-const SALES_FILTERS = { who: '业务员', customer_id: '客户', prod: '产品', class: '分类', group: '大类', state: '地区', type: '类型', owner: '所有者', month: '月份' };
+const SALES_DIMS = [['who', '业务员'], ['customer', '客户'], ['product', '产品型号'], ['class', '产品分类'], ['group', '产品大类'], ['region', '地区'], ['type', '订单类型'], ['month', '月份']];
+const SALES_FILTERS = { who: '业务员', customer_id: '客户', prod: '产品型号', class: '分类', group: '大类', state: '地区', type: '类型', owner: '所有者', month: '月份' };
 async function pageSales(view, params) {
   const f = { by: 'who', years: '', ytd: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '60', ...params };
   const yearsAll = META.years.slice(0, 8);
   const state = { ...f, years: f.years || yearsAll.slice(0, 3).join(',') };
   view.innerHTML = `<h1>销售分析 <span class="muted small">订单金额，不含意外中止；按产品 / 分类 / 大类维度或带产品条件时用订单明细金额</span></h1>
     <div class="card" style="margin-bottom:14px">
-      <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}">${l}</span>`).join('')}</span>
+      <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}" ${k === 'product' ? 'title="同一型号下的各批号已合并"' : ''}>${l}</span>`).join('')}</span>
         <span class="spacer"></span>
         <span class="years" id="years">${yearsAll.map((y) => `<label><input type="checkbox" value="${y}" ${state.years.split(',').includes(String(y)) ? 'checked' : ''}>${y}</label>`).join('')}</span>
         <label class="small" title="各年份只统计 1 月 1 日至今天的月日，便于与今年比较"><input type="checkbox" id="ytd" ${state.ytd ? 'checked' : ''}> 同期至今</label>
@@ -801,14 +802,14 @@ async function pageSales(view, params) {
       table.innerHTML = `<table><thead><tr><th>#</th><th>${dimName[d.by]}</th>${years.map((y) => `<th class="num">${y}${d.line_mode ? ' 金额 / 数量' : ''}</th>`).join('')}<th class="num">同比</th><th class="num">合计</th><th></th></tr></thead><tbody>
         <tr class="total"><td></td><td>合计</td>${years.map((y) => `<td class="num">${fmtMoney((d.totals[y] || {}).amount)}<div class="muted small">${fmtInt((d.totals[y] || {}).count)} 单${d.line_mode ? ` · ${fmtInt((d.totals[y] || {}).qty)}` : ''}</div></td>`).join('')}<td class="num">${years.length > 1 ? yoyText((d.totals[latest] || {}).amount, (d.totals[years[1]] || {}).amount) : '—'}</td><td class="num">${fmtMoney(years.reduce((s, y) => s + ((d.totals[y] || {}).amount || 0), 0))}</td><td></td></tr>
         ${d.rows.map((r, i) => {
-          const name = d.by === 'customer' ? custLink(r.customer) : d.by === 'product' ? prodLink({ id: r.id, sn: r.sn, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
+          const name = d.by === 'customer' ? custLink(r.customer) : d.by === 'product' ? prodLink({ model_name: r.model_name, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
           const drillable = !(d.by === 'customer' && !r.id);
           return `<tr><td class="muted">${i + 1}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small">${esc(r.sub)}</div>` : ''}</td>
             ${years.map((y, k) => { const c = r.cells[y] || { amount: 0, count: 0, qty: 0 }; return `<td class="num">${k === 0 ? inlineBar(c.amount, max, fmtMoney(c.amount)) : fmtMoney(c.amount)}<div class="muted small">${c.count ? `${fmtInt(c.count)} 单` : '—'}${d.line_mode && c.qty ? ` · ${fmtInt(c.qty)}` : ''}</div></td>`; }).join('')}
             <td class="num">${r.yoy == null ? '<span class="muted">—</span>' : `<span class="${r.yoy >= 0 ? 'up' : 'down'}">${r.yoy > 0 ? '+' : ''}${r.yoy}%</span>`}</td><td class="num">${fmtMoney(r.total)}</td>
             <td class="nowrap small">${drillable && drill[d.by] ? `<a data-drill="${i}">下钻 ${dimName[drill[d.by]]}</a> · ` : ''}<a data-orders="${i}">订单</a></td></tr>`; }).join('') || `<tr><td colspan="${years.length + 5}" class="empty">没有数据</td></tr>`}
       </tbody></table>`;
-      const filterFor = (r) => ({ who: { who: r.key }, customer: { customer_id: r.id }, product: { prod: r.sn || `[id:${r.id}]` }, class: { class: r.key }, group: { group: r.key }, region: { state: r.key }, type: { type: r.key }, month: { month: `${latest}-${r.key}` } }[d.by]);
+      const filterFor = (r) => ({ who: { who: r.key }, customer: { customer_id: r.id }, product: { prod: r.model_name }, class: { class: r.key }, group: { group: r.key }, region: { state: r.key }, type: { type: r.key }, month: { month: `${latest}-${r.key}` } }[d.by]);
       table.querySelectorAll('a[data-drill]').forEach((a) => a.addEventListener('click', () => { const r = d.rows[Number(a.dataset.drill)]; Object.assign(state, filterFor(r)); state.by = drill[d.by]; view.querySelectorAll('#dims .chip').forEach((c) => c.classList.toggle('active', c.dataset.by === state.by)); load(); }));
       table.querySelectorAll('a[data-orders]').forEach((a) => a.addEventListener('click', () => { const r = d.rows[Number(a.dataset.orders)]; const q = { who: state.who, customer_id: state.customer_id, prod: state.prod, class: state.class, group: state.group, state: state.state, type: state.type, owner: state.owner, month: state.month, ...filterFor(r) };
         if (!q.month) { q.from = `${latest}-01-01`; q.to = d.ytd ? `${latest}-${META.today.slice(5)}` : `${latest}-12-31`; } go('orders', q); }));
@@ -1141,7 +1142,7 @@ async function pageSalesperson(view, params) {
           <div class="card"><h2>${y} 年按月</h2><div class="legend"><span><i style="background:var(--s1)"></i>订单额</span><span><i style="background:var(--s2)"></i>回款额</span></div><div id="spChart"></div>
             <h3>工作日志条数</h3>${miniBars(d.monthly.map((m) => m.actions), 'act', d.monthly.map((m) => `${m.month}：${m.actions} 条`))}</div>
           <div class="card"><h2>${y} 年客户 Top 10</h2><table class="top-list"><tbody>${topRows(d.top_customers, (c) => custLink(c.customer), (c) => `${fmtInt(c.count)} 单`)}</tbody></table>
-            <h3>${y} 年产品 Top 10</h3><table class="top-list"><tbody>${topRows(d.top_products, (p) => `${prodLink(p)}<div class="muted small">${esc(p.sn)} ${esc(p.model || '')}</div>`, (p) => `${fmtInt(p.orders)} 单`)}</tbody></table></div>
+            <h3>${y} 年产品 Top 10（按型号）</h3><table class="top-list"><tbody>${topRows(d.top_products, (p) => `${prodLink(p)}<div class="muted small">${esc(p.class || '')}${p.batches > 1 ? ` · ${fmtInt(p.batches)} 个批号` : ''}</div>`, (p) => `${fmtInt(p.orders)} 单`)}</tbody></table></div>
         </div>
         <div class="grid row22" style="margin-top:14px">
           <div class="card"><h2>未回款计划 <span class="count">按计划日期 · 前 ${d.open_plans.length}</span></h2>${d.open_plans.length ? `<table><thead><tr><th>计划日期</th><th>客户</th><th>订单号</th><th class="num">金额</th><th>状态</th></tr></thead><tbody>${d.open_plans.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td>${custLink(p.customer)}</td><td class="nowrap">${orderLink(p.order_id, p.order_no)}</td><td class="num">${fmtMoney(p.amount)}</td><td>${planTag(p)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}</div>

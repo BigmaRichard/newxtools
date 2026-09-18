@@ -159,7 +159,7 @@ def test_overview_kpis_exclude_cancelled_orders(q):
     assert len(d["monthly"]) == 24
     assert d["top_customers"][0]["customer"]["id"] == 1 and d["top_customers"][0]["amount"] == 2000.0
     assert d["top_sales"][0]["name"] == "王勇尊"
-    assert d["top_products"][0]["sn"] == "08086-31" and d["top_products"][0]["name"].startswith("πNAP Packed")
+    assert d["top_products"][0]["name"].startswith("πNAP Packed") and d["top_products"][0]["batches"] == 1   # Top 榜按型号合并批号
     assert {s["status"]: s["count"] for s in d["status_mix"]} == {"1": 1, "2": 1, "3": 1}
 
 
@@ -330,8 +330,9 @@ def test_sales_line_mode_products_classes_groups_and_filters(q):
     prod = q(by="product").sales()
     assert prod["line_mode"] is True
     rows = {r["name"]: r for r in prod["rows"]}
-    assert rows["πNAP Packed Column 4.6mmI.D.x250mm"]["sn"] == "08086-31" and rows["πNAP Packed Column 4.6mmI.D.x250mm"]["total"] == 3000.0
-    assert rows["无编号产品（明细里以 [id:2] 引用）"]["id"] == 2 and rows["无编号产品（明细里以 [id:2] 引用）"]["cells"][str(THIS_YEAR)]["qty"] == 1.0  # "[id:N]" 引用按 id 关联
+    pi = rows["πNAP Packed Column 4.6mmI.D.x250mm"]                     # 产品维度 = 型号，key 即型号名
+    assert pi["key"] == pi["model_name"] == "πNAP Packed Column 4.6mmI.D.x250mm" and pi["total"] == 3000.0 and pi["sub"].startswith("色谱柱")
+    assert rows["无编号产品（明细里以 [id:2] 引用）"]["cells"][str(THIS_YEAR)]["qty"] == 1.0  # "[id:N]" 引用按 id 关联
     cls = {r["key"]: r for r in q(by="class").sales()["rows"]}
     assert cls["色谱柱"]["sub"] == "1.色谱柱" and cls["制备色谱填料"]["total"] == 500.0
     grp = {r["key"]: r for r in q(by="group").sales()["rows"]}
@@ -340,8 +341,11 @@ def test_sales_line_mode_products_classes_groups_and_filters(q):
     who = q(by="who", prod="08086-31").sales()
     assert who["line_mode"] is True and [r["key"] for r in who["rows"]] == ["王勇尊"] and who["filters"]["prod"].startswith("πNAP")
     assert [r["key"] for r in q(by="who", group="2.色谱介质").sales()["rows"]] == ["李勇刚(离职)"]
-    assert [(r["key"], r["sn"]) for r in q(by="product", who="M9").sales()["rows"]] == [(1, "08086-31")]
-    assert q(by="product", state="29").sales()["rows"][0]["id"] == 2
+    assert [r["key"] for r in q(by="product", who="M9").sales()["rows"]] == ["πNAP Packed Column 4.6mmI.D.x250mm"]
+    assert q(by="product", state="29").sales()["rows"][0]["key"] == "无编号产品（明细里以 [id:2] 引用）"
+    # prod 条件：产品编号按单个批号；型号名按该型号的全部批号
+    by_model = q(by="who", prod="πNAP Packed Column 4.6mmI.D.x250mm").sales()
+    assert [r["key"] for r in by_model["rows"]] == ["王勇尊"] and by_model["filters"]["prod"].startswith("πNAP")
 
 
 def test_customer_analysis_tiers_new_retention_churn(q):
@@ -374,7 +378,7 @@ def test_salesperson_dashboard(q):
     assert k["open_plans"]["count"] == 1 and k["overdue_plans"]["count"] == 1 and k["customers_owned"] == 2 and k["customers_active"] == 1
     assert k["actions"] >= 1 and k["last_action"] == TODAY.isoformat()  # 2224 年的异常日期不算“最近”
     assert d["rank"] == 1 and d["rank_of"] == 2
-    assert d["monthly"][2]["orders"]["amount"] == 2000.0 and d["top_customers"][0]["customer"]["id"] == 1 and d["top_products"][0]["sn"] == "08086-31"
+    assert d["monthly"][2]["orders"]["amount"] == 2000.0 and d["top_customers"][0]["customer"]["id"] == 1 and d["top_products"][0]["model_name"].startswith("πNAP")
     assert len(d["open_plans"]) == 1 and d["recent_orders"][0]["no"].endswith("013")  # 最近订单含意外中止的单
     assert q(who="王勇尊").salesperson()["user"]["part"] == "M9"  # 按姓名也能找到
     assert q().salesperson() is None
@@ -542,3 +546,45 @@ def test_model_view_unit_default_and_pack_spec(tmp_path):
     assert next(b for b in d["batches"] if b["id"] == 13)["unit_assumed"] is True
     one = query(sn="260227AB-20kg/桶").product_detail()["product"]
     assert one["pack"] == "20kg/桶" and one["unit"] == "公斤" and one["unit_assumed"] is False
+
+
+def test_sales_product_dimension_merges_batches_of_one_model(tmp_path):
+    """销售分析的产品维度按型号合并：同型号两个批号的订单合成一行，订单筛选也按整个型号。"""
+    path = tmp_path / "model_sales.sqlite"
+    store = Store(path)
+    seed(store)
+    y = str(THIS_YEAR)
+    batches = [
+        {"id": "21", "sn": "260227AB-20kg/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "公斤", "price": "8800.0000",
+         "status": "正常", "class": "制备色谱填料", "lnum": "130.000", "ldown": "0.000", "moddate": "2026-01-01"},
+        {"id": "22", "sn": "260430AB-20kg/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "公斤", "price": "8800.0000",
+         "status": "正常", "class": "制备色谱填料", "lnum": "40.000", "ldown": "0.000", "moddate": "2026-01-01"},
+    ]
+    orders = [
+        {"id": "91", "No.": f"mw{y}0401091", "subject": "型号合并一", "cu_sn": "[id:1]", "type": "1", "status": "2", "confirm": "2", "st_send": "4",
+         "sum": "8000.00", "who": "王勇尊", "date": f"{y}-04-01", "end_date": f"{y}-04-01", "money_type": "RMB",
+         "goods": [{"id": "91", "prod": "260227AB-20kg/桶", "prod_name": "SP-100-8-C4-NP", "amount": "2.000", "un_price": "4000", "sum": "8000.00"}]},
+        {"id": "92", "No.": f"mw{y}0402092", "subject": "型号合并二", "cu_sn": "[id:2]", "type": "1", "status": "2", "confirm": "2", "st_send": "4",
+         "sum": "4000.00", "who": "王勇尊", "date": f"{y}-04-02", "end_date": f"{y}-04-02", "money_type": "RMB",
+         "goods": [{"id": "92", "prod": "260430AB-20kg/桶", "prod_name": "SP-100-8-C4-NP", "amount": "1.000", "un_price": "4000", "sum": "4000.00"}]},
+    ]
+    store.upsert_raw("product", batches)
+    store.upsert_normalized(SPEC_BY_DT["product"], batches)
+    store.upsert_raw("contract", orders)
+    store.upsert_normalized(SPEC_BY_DT["contract"], orders)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    rows = {r["key"]: r for r in query(by="product", years=THIS_YEAR).sales()["rows"]}
+    row = rows["SP-100-8-C4-NP"]                                   # 两个批号合成一行
+    assert row["total"] == 12000.0 and row["batches"] == 2 and row["cells"][str(THIS_YEAR)]["qty"] == 3.0
+    assert row["class"] == "制备色谱填料" and row["sub"].startswith("制备色谱填料")
+    # 订单列表按型号筛选：两张单都算进来；按单个批号筛选只剩一张
+    assert query(prod="SP-100-8-C4-NP").orders()["total"] == 2
+    assert query(prod="260227AB-20kg/桶").orders()["total"] == 1
+    # 业务员看板与总览的产品 Top 榜同样按型号
+    top = query(who="M9", year=THIS_YEAR).salesperson()["top_products"]
+    assert top[0]["model_name"] == "SP-100-8-C4-NP" and top[0]["batches"] == 2 and top[0]["amount"] == 12000.0

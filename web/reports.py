@@ -140,10 +140,14 @@ class ReportQueries:
     def _line_filters(self, clauses: List[str], args: List[Any]) -> bool:
         """产品层筛选（明细模式）：prod / class / group。返回是否用到。"""
         used = False
-        if self.get("prod"):
+        if self.get("prod"):        # 产品编号 / "[id:N]" 视为单个批号；否则当型号名（销售分析的产品维度按型号）
             prod = self.lk.product(self.get("prod"))
-            clauses.append("p.id = ?")
-            args.append(prod["id"] if prod else -1)
+            if prod:
+                clauses.append("p.id = ?")
+                args.append(prod["id"])
+            else:
+                clauses.append("COALESCE(p.name, '') = ?")
+                args.append(self.get("prod"))
             used = True
         if self.get("class"):
             clauses.append("COALESCE(p.class, '') = ?")
@@ -185,9 +189,10 @@ class ReportQueries:
             agg = f"COUNT(*) n, SUM({ORDER_RMB_EXPR}) a, NULL q"
         dim_sql = {
             "who": "o.who", "customer": "o.cu_sn", "region": "o.cu_sn", "type": "o.type", "month": "substr(o.date, 6, 2)",
-            "product": "COALESCE('#' || p.id, g.prod)", "class": "COALESCE(p.class, '')", "group": "COALESCE(p.class, '')",
+            "product": "COALESCE(NULLIF(p.name, ''), NULLIF(g.prod_name, ''), g.prod)",   # 产品维度 = 型号（同型号各批号合并）
+            "class": "COALESCE(p.class, '')", "group": "COALESCE(p.class, '')",
         }[by]
-        extra = ", MAX(g.prod_name) pn" if by == "product" else ""
+        extra = ", MAX(COALESCE(p.class, '')) pcls, COUNT(DISTINCT g.prod) pbatch" if by == "product" else ""
         raw = self.rows(f"SELECT {dim_sql} k, substr(o.date, 1, 4) y, {agg}{extra} {base} GROUP BY k, y", args)
 
         # 折叠到展示行：客户 / 地区 / 大类在 Python 里归并
@@ -210,12 +215,11 @@ class ReportQueries:
             elif by == "class":
                 key = r["k"] or ""
                 label, sub = key or "（未分类）", self.lk.class_group(key)
-            elif by == "product":
-                prod = self.lk.product(r["k"]) or {}
-                key = prod.get("id") or r["k"] or "?"
-                label = prod.get("name") or r.get("pn") or r["k"] or "（无编码）"
-                sub = " ".join(x for x in [prod.get("sn") or ("" if prod else r["k"] or ""), prod.get("model") or ""] if x)
-                extra_fields = {"id": prod.get("id"), "sn": prod.get("sn") or "", "model": prod.get("model") or "", "unit": prod.get("unit") or "", "class": prod.get("class") or ""}
+            elif by == "product":       # 按型号：同一产品名下的各批号合并成一行
+                key = r["k"] or "（无名称）"
+                label = key
+                sub = " · ".join(x for x in [r["pcls"] or "", self.lk.class_group(r["pcls"] or "") if r["pcls"] else ""] if x)
+                extra_fields = {"model_name": key, "class": r["pcls"] or "", "batches": r["pbatch"] or 0}
             elif by == "type":
                 label = self.lk.text("contract", "type", r["k"]) or "（无类型）"
             elif by == "month":
@@ -271,7 +275,7 @@ class ReportQueries:
             c = self.lk.customers.get(_int(self.get("customer_id")))
             out["customer_id"] = (c or {}).get("cu_name") or (c or {}).get("m_name") or self.get("customer_id")
         if self.get("prod"):
-            out["prod"] = (self.lk.products.get(self.get("prod")) or {}).get("name") or self.get("prod")
+            out["prod"] = (self.lk.product(self.get("prod")) or {}).get("name") or self.get("prod")
         if self.get("class"):
             out["class"] = self.get("class")
         if self.get("group"):
@@ -459,10 +463,11 @@ class ReportQueries:
                          for r in self.rows(f"SELECT o.cu_sn, COUNT(*) n, SUM({ORDER_RMB_EXPR}) a {base_o} AND o.date BETWEEN ? AND ? GROUP BY o.cu_sn ORDER BY a DESC LIMIT 10", [name, y0, y1])]
         top_products = []
         for r in self.rows(
-            f"SELECT COALESCE('#' || p.id, g.prod) k, MAX(g.prod_name) pn, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, COUNT(DISTINCT o.id) n FROM contract_goods g JOIN contract o ON o.id = g.contract_id {PRODUCT_JOIN} "
+            f"SELECT COALESCE(NULLIF(p.name, ''), NULLIF(g.prod_name, ''), g.prod) k, MAX(COALESCE(p.class, '')) pcls, COUNT(DISTINCT g.prod) batches, "
+            f"SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, COUNT(DISTINCT o.id) n FROM contract_goods g JOIN contract o ON o.id = g.contract_id {PRODUCT_JOIN} "
             f"WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.who = ? AND o.date BETWEEN ? AND ? GROUP BY k ORDER BY a DESC LIMIT 10", [name, y0, y1]):
-            prod = self.lk.product(r["k"]) or {}
-            top_products.append({"id": prod.get("id"), "sn": prod.get("sn") or "", "name": prod.get("name") or r["pn"] or r["k"], "model": prod.get("model") or "", "amount": money(r["a"]), "quantity": r["q"], "orders": r["n"]})
+            top_products.append({"model_name": r["k"], "name": r["k"], "class": r["pcls"] or "", "batches": r["batches"] or 0,
+                                 "amount": money(r["a"]), "quantity": r["q"], "orders": r["n"]})
         ranking = self.rows(f"SELECT o.who, SUM({ORDER_RMB_EXPR}) a FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.date BETWEEN ? AND ? GROUP BY o.who ORDER BY a DESC", [y0, y1])
         rank = next((i + 1 for i, r in enumerate(ranking) if r["who"] == name), None)
         open_plans = [self.plan_row(g) for g in self.rows(f"SELECT * FROM gathering WHERE _deleted_at IS NULL AND status {OPEN_PLAN_SQL} AND who = ? ORDER BY date LIMIT 30", [part])]
