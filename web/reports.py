@@ -12,6 +12,7 @@ customer_clause / date_clause / name_search_clause / order_row / enrich_orders /
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 CANCELLED = "3"
@@ -25,6 +26,32 @@ SALES_DIMS = ("who", "customer", "product", "class", "group", "region", "type", 
 # 订单明细 / 采购明细里的产品引用：产品编号 sn，或产品没有编号时为 "[id:N]"；统一按 product.id 关联
 PRODUCT_KEY = "(CASE WHEN {g}.prod LIKE '[id:%]' THEN CAST(substr({g}.prod, 5, length({g}.prod) - 5) AS INTEGER) ELSE (SELECT s.id FROM product s WHERE s.sn = {g}.prod AND s.sn <> '' LIMIT 1) END)"
 PRODUCT_JOIN = "LEFT JOIN product p ON p.id = " + PRODUCT_KEY.format(g="g")
+# 产品编号里的包装规格：如 260227AB-20kg/桶、131012TSP-1kg。包装不是计量单位，填料库存一律按公斤记
+PACK_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(kg|g|mg|t|L|ml)\s*(?:[/／]\s*([^\s/／]+))?\s*$", re.IGNORECASE)
+UNIT_ALIAS = {"kg": "kg", "g": "g", "mg": "mg", "t": "t", "l": "L", "ml": "mL"}
+# 这些分类的产品按重量计（CRM 未填单位时默认公斤）
+BULK_CLASS_HINTS = ("填料", "介质", "凝胶", "树脂")
+
+
+def pack_spec(sn: Optional[str]) -> Optional[str]:
+    """从产品编号末段解析包装规格（20kg/桶、500g/瓶、1kg）；解析不出返回 None。"""
+    for part in reversed((sn or "").replace("／", "/").split("-")):
+        m = PACK_RE.match(part.strip())
+        if m:
+            unit = UNIT_ALIAS.get(m.group(2).lower(), m.group(2))
+            return f"{m.group(1)}{unit}" + (f"/{m.group(3)}" if m.group(3) else "")
+    return None
+
+
+def unit_of(unit: Optional[str], class_: Optional[str]) -> Tuple[str, bool]:
+    """CRM 未填计量单位时，填料 / 介质类按公斤（Richard 口径）；返回 (单位, 是否为默认补的)。"""
+    if (unit or "").strip():
+        return unit.strip(), False
+    if any(k in (class_ or "") for k in BULK_CLASS_HINTS):
+        return "公斤", True
+    return "", False
+
+
 PURCHASE_STATUS_FALLBACK = {"0": "待入库", "1": "生成入库单", "2": "部分入库", "3": "全部入库"}
 PAY_PLAN_STATUS_FALLBACK = {"0": "未付", "1": "已付"}
 
@@ -480,8 +507,10 @@ class ReportQueries:
     def product_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
         """批号视图的一行（一条 CRM 产品记录 = 一个批号 / 包装规格）。"""
         stock, ldown, lup = _num(r.get("stock")), _num(r.get("ldown")), _num(r.get("lup"))
+        unit, assumed = unit_of(r.get("unit"), r.get("class"))
         return {
-            "id": r.get("id"), "sn": r.get("sn"), "name": r.get("name"), "model": r.get("model"), "sku": r.get("sku"), "unit": r.get("unit"),
+            "id": r.get("id"), "sn": r.get("sn"), "name": r.get("name"), "model": r.get("model"), "sku": r.get("sku"),
+            "unit": unit, "unit_assumed": assumed, "pack": pack_spec(r.get("sn")),
             "class": r.get("class") or "", "group": self.lk.class_group(r.get("class") or ""), "price": money(r.get("price")), "cost": money(r.get("costprice")),
             "status": r.get("status"), "manufacturer": r.get("manufacturer"), "mflag": r.get("mflag"),
             "stock": round(stock, 3), "stock_low": bool(r.get("low_flag")), "ldown": round(ldown, 3), "lup": round(lup, 3), "ptype": r.get("ptype"),
@@ -491,11 +520,12 @@ class ReportQueries:
 
     def model_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
         """型号视图的一行（同一产品名下的全部批号合计）。"""
+        unit, assumed = unit_of(r.get("unit"), r.get("class"))
         return {
             "model_name": r.get("name"), "any_id": r.get("id"), "batches": r.get("batches") or 0, "batches_in_stock": r.get("batches_in_stock") or 0,
             "low_batches": r.get("low_batches") or 0, "stock": round(_num(r.get("stock")), 3), "stock_low": bool(r.get("low_flag")),
-            "class": r.get("class") or "", "group": self.lk.class_group(r.get("class") or ""), "unit": r.get("unit"), "price": money(r.get("price_v")),
-            "units": r.get("units"), "sales_amount": money(r.get("sold_amount")), "sales_qty": round(_num(r.get("sold_qty")), 3),
+            "class": r.get("class") or "", "group": self.lk.class_group(r.get("class") or ""), "unit": unit, "unit_assumed": assumed, "price": money(r.get("price_v")),
+            "units": r.get("units") or 0, "sales_amount": money(r.get("sold_amount")), "sales_qty": round(_num(r.get("sold_qty")), 3),
             "sales_orders": r.get("sold_orders") or 0, "sales_customers": r.get("sold_cust") or 0, "last_sale": r.get("last_sale"),
         }
 
@@ -558,7 +588,9 @@ class ReportQueries:
                      "SUM(CAST(p.lnum AS REAL)) stock, "
                      "SUM(CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END) low_batches, "
                      "MIN(CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END) low_flag, "
-                     "MAX(CAST(p.price AS REAL)) price_v, MAX(p.class) class, MIN(p.unit) unit, COUNT(DISTINCT p.unit) units, "
+                     "MAX(CAST(p.price AS REAL)) price_v, MAX(p.class) class, "
+                     "COALESCE(MAX(CASE WHEN CAST(p.lnum AS REAL) > 0 THEN NULLIF(p.unit, '') END), MAX(NULLIF(p.unit, ''))) unit, "
+                     "COUNT(DISTINCT CASE WHEN CAST(p.lnum AS REAL) > 0 THEN NULLIF(p.unit, '') END) units, "
                      "MAX(s.n) sold_orders, MAX(s.a) sold_amount, MAX(s.q) sold_qty, MAX(s.last_date) last_sale, MAX(s.cust) sold_cust "
                      "FROM product p LEFT JOIN s ON s.pname = p.name WHERE " + " AND ".join(clauses) + " GROUP BY p.name" + having)
         else:
@@ -610,7 +642,9 @@ class ReportQueries:
             r = self.one(f"{self.MODEL_SALES_CTE} SELECT p.name, MAX(p.id) id, COUNT(*) batches, "
                          "SUM(CASE WHEN CAST(p.lnum AS REAL) > 0 THEN 1 ELSE 0 END) batches_in_stock, SUM(CAST(p.lnum AS REAL)) stock, "
                          "SUM(CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END) low_batches, "
-                         "MAX(CAST(p.price AS REAL)) price_v, MAX(p.class) class, MIN(p.unit) unit, COUNT(DISTINCT p.unit) units, "
+                         "MAX(CAST(p.price AS REAL)) price_v, MAX(p.class) class, "
+                     "COALESCE(MAX(CASE WHEN CAST(p.lnum AS REAL) > 0 THEN NULLIF(p.unit, '') END), MAX(NULLIF(p.unit, ''))) unit, "
+                     "COUNT(DISTINCT CASE WHEN CAST(p.lnum AS REAL) > 0 THEN NULLIF(p.unit, '') END) units, "
                          "MAX(s.n) sold_orders, MAX(s.a) sold_amount, MAX(s.q) sold_qty, MAX(s.last_date) last_sale, MAX(s.cust) sold_cust "
                          "FROM product p LEFT JOIN s ON s.pname = p.name WHERE p._deleted_at IS NULL AND p.name = ? GROUP BY p.name", [start, model])
             if not r:
@@ -652,9 +686,10 @@ class ReportQueries:
         batches = []
         if model:  # 型号下的各批号：编号里通常是“生产批号-包装规格”
             batches = [{"id": x["id"], "sn": x["sn"] or "", "stock": round(_num(x["stock"]), 3), "ldown": round(_num(x["ldown"]), 3),
-                        "stock_low": _num(x["ldown"]) > 0 and _num(x["stock"]) < _num(x["ldown"]), "unit": x["unit"], "status": x["status"], "model": x["model"],
+                        "stock_low": _num(x["ldown"]) > 0 and _num(x["stock"]) < _num(x["ldown"]), "unit": unit_of(x["unit"], x["class"])[0],
+                        "unit_assumed": unit_of(x["unit"], x["class"])[1], "pack": pack_spec(x["sn"]), "status": x["status"], "model": x["model"],
                         "sales_amount": money(x["a"]), "sales_qty": round(_num(x["q"]), 3), "sales_orders": x["n"] or 0, "last_sale": x["last_date"]}
-                       for x in self.rows(f"{self.PRODUCT_SALES_CTE} SELECT p.id, p.sn, p.unit, p.status, p.model, CAST(p.lnum AS REAL) stock, p.ldown, s.n, s.a, s.q, s.last_date "
+                       for x in self.rows(f"{self.PRODUCT_SALES_CTE} SELECT p.id, p.sn, p.unit, p.class, p.status, p.model, CAST(p.lnum AS REAL) stock, p.ldown, s.n, s.a, s.q, s.last_date "
                                           "FROM product p LEFT JOIN s ON s.pid = p.id WHERE p._deleted_at IS NULL AND p.name = ? "
                                           "ORDER BY CAST(p.lnum AS REAL) DESC, s.last_date DESC NULLS LAST, p.sn", [start, model])]
         extras = [] if model else self.raw_extras("product", prod["id"], set(r.keys()))

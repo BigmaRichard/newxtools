@@ -509,3 +509,36 @@ def test_products_group_by_model_and_sorting(q):
     assert [b["sn"] for b in d["batches"]] == ["08086-31"] and d["batches"][0]["sales_orders"] == 2
     assert d["yearly"][0]["amount"] == 1000.0 and d["top_customers"][0]["customer"]["id"] == 1
     assert q(model="不存在的型号").product_detail() is None
+
+
+def test_model_view_unit_default_and_pack_spec(tmp_path):
+    """填料型号：编号里的 20kg/桶 是包装规格；计量单位按有库存的批号判断，CRM 未填时按公斤。"""
+    path = tmp_path / "pack.sqlite"
+    store = Store(path)
+    seed(store)
+    batches = [  # 同一型号三个批号：公斤 / 历史上把包装当单位（已无库存）/ 未填单位
+        {"id": "11", "sn": "260227AB-20kg/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "公斤", "price": "8800.0000",
+         "status": "正常", "class": "制备色谱填料", "lnum": "130.000", "ldown": "0.000", "moddate": "2026-01-01"},
+        {"id": "12", "sn": "121031-100g/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "桶", "price": "8800.0000",
+         "status": "停用", "class": "制备色谱填料", "lnum": "0.000", "ldown": "0.000", "moddate": "2026-01-01"},
+        {"id": "13", "sn": "230101AK-1kg/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "", "price": "8800.0000",
+         "status": "正常", "class": "制备色谱填料", "lnum": "20.000", "ldown": "0.000", "moddate": "2026-01-01"},
+    ]
+    store.upsert_raw("product", batches)
+    store.upsert_normalized(SPEC_BY_DT["product"], batches)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    row = next(r for r in query(view="model", months="0").products()["rows"] if r["model_name"] == "SP-100-8-C4-NP")
+    assert row["batches"] == 3 and row["batches_in_stock"] == 2 and row["stock"] == 150.0
+    assert row["units"] == 1 and row["unit"] == "公斤"        # 库存为 0 的“桶”不算，空单位按填料默认公斤
+    d = query(model="SP-100-8-C4-NP", months="0").product_detail()
+    packs = {b["sn"]: b["pack"] for b in d["batches"]}
+    assert packs == {"260227AB-20kg/桶": "20kg/桶", "121031-100g/桶": "100g/桶", "230101AK-1kg/桶": "1kg/桶"}
+    assert next(b for b in d["batches"] if b["id"] == 13)["unit"] == "公斤"
+    assert next(b for b in d["batches"] if b["id"] == 13)["unit_assumed"] is True
+    one = query(sn="260227AB-20kg/桶").product_detail()["product"]
+    assert one["pack"] == "20kg/桶" and one["unit"] == "公斤" and one["unit_assumed"] is False

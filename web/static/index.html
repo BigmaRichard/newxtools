@@ -895,6 +895,9 @@ async function pageCustomerAnalysis(view, params) {
 }
 
 // ------------------------------------------------------------------ 页面：产品与库存（0.5）
+// 计量单位：CRM 未填时按色谱填料默认公斤，显示上标注出来（产品编号里的 20kg/桶 是包装规格，不是单位）
+const unitTag = (p) => p.unit ? ` <span class="muted small"${p.unit_assumed ? ' title="CRM 未填计量单位，色谱填料按公斤计"' : ''}>${esc(p.unit)}${p.unit_assumed ? '*' : ''}</span>` : '';
+
 // 窄屏卡片模式下表头不可见，用下拉代替点表头排序
 const sortOptions = (byModel) => [
   byModel ? ['name', '型号', 'Z→A', 'A→Z'] : ['sn', '编号', 'Z→A', 'A→Z'],
@@ -907,7 +910,7 @@ const sortOptions = (byModel) => [
 async function pageProducts(view, params) {
   const f = { q: '', group: '', class: '', status: '', stock: '', months: '12', view: 'batch', sort: 'amount', dir: 'desc', page: 1, ...params };
   const classOptions = (group, current) => options((META.product_classes || []).filter((c) => !group || c.group === group), 'title', 'title', current, group ? '该大类全部分类' : '全部分类');
-  view.innerHTML = `<h1>产品与库存 <span class="muted small">库存为 CRM 产品表的库存数；销售按订单明细（不含意外中止）</span></h1>
+  view.innerHTML = `<h1>产品与库存 <span class="muted small">库存为 CRM 产品表的库存数；编号里的 20kg/桶 是包装规格，填料库存按公斤计；销售按订单明细（不含意外中止）</span></h1>
     <div class="filters" id="filters">
       <span class="chips" id="views"><span class="chip ${f.view !== 'model' ? 'active' : ''}" data-view="batch">按批号</span><span class="chip ${f.view === 'model' ? 'active' : ''}" data-view="model">按型号合计</span></span>
       <input type="text" name="q" placeholder="编号 / 名称 / 型号" value="${esc(f.q)}">
@@ -958,10 +961,10 @@ async function pageProducts(view, params) {
         ? res.rows.map((p) => `<tr class="click" data-prod="model:${esc(p.model_name)}"><td class="lead"><div class="prod-name" title="${esc(p.model_name)}">${esc(p.model_name)}</div></td>
             <td class="num">${fmtInt(p.batches)}<div class="muted small">${!p.batches_in_stock ? '无货' : p.batches_in_stock === p.batches ? '全有货' : `${fmtInt(p.batches_in_stock)} 个有货`}</div></td>
             <td class="small">${esc(p.class)}<div class="muted">${esc(p.group)}</div></td><td class="num">${p.price ? fmtMoney(p.price) : '<span class="muted">—</span>'}</td>
-            <td class="num">${fmtInt(p.stock)}${p.unit ? ` <span class="muted small">${esc(p.unit)}</span>` : ''}${p.units > 1 ? ' <span class="tag warn" title="该型号下各批号的单位不一致，合计仅供参考">单位不一</span>' : ''}${p.low_batches ? ` <span class="tag bad" title="${p.low_batches} 个批号低于下限">低</span>` : ''}</td>
+            <td class="num">${fmtInt(p.stock)}${unitTag(p)}${p.units > 1 ? ' <span class="tag warn" title="该型号下有库存的批号之间计量单位不一致，合计仅供参考">单位不一</span>' : ''}${p.low_batches ? ` <span class="tag bad" title="${p.low_batches} 个批号低于下限">低</span>` : ''}</td>
             <td class="num">${inlineBar(p.sales_amount, max, fmtMoney(p.sales_amount))}</td><td class="num">${fmtInt(p.sales_qty)}</td><td class="num">${p.sales_orders}</td><td class="num">${p.sales_customers}</td><td class="nowrap small">${esc(p.last_sale || '—')}</td></tr>`).join('')
-        : res.rows.map((p) => `<tr class="click" data-prod="${p.id}"><td class="nowrap small">${esc(p.sn || '（无编号）')}</td><td class="lead"><div class="prod-name" title="${esc(p.name)}">${esc(p.name)}</div><div class="muted small">${esc([p.model, p.unit].filter((x) => x && x !== '-').join(' · '))}${p.status && p.status !== '正常' ? ` · <span class="tag warn">${esc(p.status)}</span>` : ''}</div></td>
-            <td class="small">${esc(p.class)}<div class="muted">${esc(p.group)}</div></td><td class="num">${p.price ? fmtMoney(p.price) : '<span class="muted">—</span>'}</td><td class="num">${fmtInt(p.stock)}${p.stock_low ? ` <span class="tag bad" title="下限 ${p.ldown}">低</span>` : ''}</td>
+        : res.rows.map((p) => `<tr class="click" data-prod="${p.id}"><td class="nowrap small">${esc(p.sn || '（无编号）')}</td><td class="lead"><div class="prod-name" title="${esc(p.name)}">${esc(p.name)}</div><div class="muted small">${esc([p.pack, p.model].filter((x) => x && x !== '-').join(' · '))}${p.status && p.status !== '正常' ? ` · <span class="tag warn">${esc(p.status)}</span>` : ''}</div></td>
+            <td class="small">${esc(p.class)}<div class="muted">${esc(p.group)}</div></td><td class="num">${p.price ? fmtMoney(p.price) : '<span class="muted">—</span>'}</td><td class="num">${fmtInt(p.stock)}${unitTag(p)}${p.stock_low ? ` <span class="tag bad" title="下限 ${p.ldown}">低</span>` : ''}</td>
             <td class="num">${inlineBar(p.sales_amount, max, fmtMoney(p.sales_amount))}</td><td class="num">${fmtInt(p.sales_qty)}</td><td class="num">${p.sales_orders}</td><td class="num">${p.sales_customers}</td><td class="nowrap small">${esc(p.last_sale || '—')}</td></tr>`).join('');
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> ${unit}${byModel ? '（同一产品名下的批号已合并；点开看各批号库存）' : ''}</p>
         <table><thead>${head}</thead><tbody>${body || `<tr><td colspan="10" class="empty">没有符合条件的${byModel ? '型号' : '产品'}</td></tr>`}</tbody></table>`;
@@ -1209,19 +1212,19 @@ async function openProduct(key) {
         <div><label>型号</label><span><b>${esc(p.model_name)}</b></span></div>
         <div><label>分类</label><span>${esc(p.class)} <span class="muted small">${esc(p.group)}</span></span></div>
         <div><label>批号</label><span>${fmtInt(p.batches)} 个${p.batches_in_stock ? `，其中 ${fmtInt(p.batches_in_stock)} 个有库存` : (p.batches > 1 ? '，均无库存' : '，无库存')}${p.low_batches ? ` · <span class="tag bad">${p.low_batches} 个低于下限</span>` : ''}</span></div>
-        <div><label>库存合计</label><span><b>${fmtInt(p.stock)}</b> ${esc(p.unit || '')}${p.units > 1 ? ' <span class="tag warn">各批号单位不一致</span>' : ''}</span></div>
+        <div><label>库存合计</label><span><b>${fmtInt(p.stock)}</b>${unitTag(p)}${p.units > 1 ? ' <span class="tag warn" title="有库存的批号之间计量单位不一致">各批号单位不一致</span>' : ''}</span></div>
         <div><label>价格</label><span class="money">${p.price ? fmtMoney(p.price) : '—'}</span></div>
         <div><label>${d.window}</label><span>销售 ${fmtMoney(p.sales_amount)} · ${fmtInt(p.sales_qty)} ${esc(p.unit || '')} · ${p.sales_orders} 单 · ${p.sales_customers} 家客户</span></div>
       </div>
-      <h3>各批号库存 <span class="muted">${d.batches.length} 个批号 · 编号为“生产批号-包装规格”</span></h3>
-      <table><thead><tr><th>编号</th><th class="num">库存</th><th>状态</th><th class="num">${d.window}销售额</th><th class="num">数量</th><th class="num">单数</th><th>最近销售</th></tr></thead><tbody>
-        ${d.batches.map((b) => `<tr class="click" data-batch="${b.id}"><td class="lead">${esc(b.sn || '（无编号）')}</td><td class="num">${fmtInt(b.stock)}${b.stock_low ? ' <span class="tag bad">低</span>' : ''}</td><td class="small">${esc(b.status || '')}</td><td class="num">${fmtMoney(b.sales_amount)}</td><td class="num">${fmtInt(b.sales_qty)}</td><td class="num">${b.sales_orders || ''}</td><td class="nowrap small">${esc(b.last_sale || '—')}</td></tr>`).join('')}
+      <h3>各批号库存 <span class="muted">${d.batches.length} 个批号 · 编号为“生产批号-包装规格”，包装不是计量单位</span></h3>
+      <table><thead><tr><th>编号</th><th>包装</th><th class="num">库存</th><th>状态</th><th class="num">${d.window}销售额</th><th class="num">数量</th><th class="num">单数</th><th>最近销售</th></tr></thead><tbody>
+        ${d.batches.map((b) => `<tr class="click" data-batch="${b.id}"><td class="lead">${esc(b.sn || '（无编号）')}</td><td class="small">${b.pack ? esc(b.pack) : '<span class="muted">—</span>'}</td><td class="num">${fmtInt(b.stock)}${unitTag(b)}${b.stock_low ? ' <span class="tag bad">低</span>' : ''}</td><td class="small">${esc(b.status || '')}</td><td class="num">${fmtMoney(b.sales_amount)}</td><td class="num">${fmtInt(b.sales_qty)}</td><td class="num">${b.sales_orders || ''}</td><td class="nowrap small">${esc(b.last_sale || '—')}</td></tr>`).join('')}
       </tbody></table>` : `
       <div class="kv">
         <div><label>编号</label><span>${esc(p.sn || '（无编号）')} <span class="muted small">id ${p.id}</span></span></div>
         <div><label>分类</label><span>${esc(p.class)} <span class="muted small">${esc(p.group)}</span></span></div>
         <div><label>型号</label><span>${esc(p.model || '')} ${p.sku && p.sku !== '-' ? esc(p.sku) : ''}</span></div>
-        <div><label>单位</label><span>${esc(p.unit || '')}</span></div>
+        <div><label>计量单位</label><span>${esc(p.unit || '—')}${p.unit_assumed ? ' <span class="muted small">（CRM 未填，填料按公斤）</span>' : ''}${p.pack ? ` · <label>包装</label> ${esc(p.pack)}` : ''}</span></div>
         <div><label>价格</label><span class="money">${p.price ? fmtMoney(p.price) : '—'}${p.cost ? ` <span class="muted small">成本 ${fmtMoney(p.cost)}</span>` : ''}</span></div>
         <div><label>库存</label><span>${fmtInt(p.stock)}${p.stock_low ? ' <span class="tag bad">低于下限</span>' : ''} <span class="muted small">下限 ${p.ldown} · 上限 ${p.lup}</span></span></div>
         <div><label>状态</label><span>${esc(p.status || '')}${p.mflag && p.mflag !== '否' ? ' · 自产' : ''}</span></div>
