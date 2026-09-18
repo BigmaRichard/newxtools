@@ -68,6 +68,7 @@ h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600
 .row3 { grid-template-columns: repeat(3, 1fr); }
 @media (max-width: 1100px) { .row2, .row3 { grid-template-columns: 1fr; } }
 .only-narrow { display: none; }
+.btn.small { padding: 3px 9px; font-size: 12px; vertical-align: middle; margin-left: 8px; font-weight: 400; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .filters input, .filters select { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 7px; padding: 6px 9px; min-width: 0; }
 .filters input[type=text] { width: 220px; }
@@ -637,13 +638,14 @@ async function pageReceivables(view, params) {
   if (tab === 'plans') await tabPlans(body, params); else await tabReceipts(body, params);
 }
 async function tabPlans(body, params) {
-  const f = { status: 'open', who: '', from: '', to: '', q: '', sort: '', page: 1, ...params };
+  const f = { status: 'open', who: '', from: '', to: '', q: '', sort: '', dir: '', page: 1, ...params };
   body.innerHTML = `<div class="filters" id="filters">
       <select name="status"><option value="open" ${f.status === 'open' ? 'selected' : ''}>未回 + 部分回款</option><option value="overdue" ${f.status === 'overdue' ? 'selected' : ''}>仅逾期</option><option value="done" ${f.status === 'done' ? 'selected' : ''}>已回</option><option value="all" ${f.status === 'all' ? 'selected' : ''}>全部</option></select>
       <select name="who">${userOptions(f.who, '全部业务员')}</select>
       <input type="date" name="from" value="${esc(f.from)}"><span class="sep">至</span><input type="date" name="to" value="${esc(f.to)}">
       <input type="text" name="q" placeholder="订单号 / 客户名称" value="${esc(f.q)}">
-      <select name="sort"><option value="">按计划日期（早→晚）</option><option value="date_desc" ${f.sort === 'date_desc' ? 'selected' : ''}>按计划日期（晚→早）</option><option value="amount" ${f.sort === 'amount' ? 'selected' : ''}>按金额</option></select>
+      <select id="planSortUi" class="only-narrow" title="排序"></select>
+      <input type="hidden" name="sort" value="${esc(f.sort)}"><input type="hidden" name="dir" value="${esc(f.dir)}">
       <button class="btn primary" id="go">查询</button><button class="btn" id="reset">清空</button>${exportButton('receivables')}
     </div>
     <div class="grid row2"><div class="card" id="summary"></div><div class="card" id="byWho"></div></div>
@@ -659,16 +661,47 @@ async function tabPlans(body, params) {
       const buckets = [['未到期', a.not_due, 'open'], ['逾期 ≤30 天', a.d30, 'warn'], ['31–90 天', a.d90, 'warn'], ['91–365 天', a.d365, 'bad'], ['超过 1 年', a.d365p, 'bad']];
       $('#summary').innerHTML = `<h2>未回款账龄 <span class="count">按当前筛选</span></h2><table><tbody>${buckets.map(([n, v, c]) => `<tr><td><span class="tag ${c}">${n}</span></td><td class="num" style="width:55%">${inlineBar(v, agingTotal, fmtMoney(v))}</td><td class="num muted">${agingTotal ? (v / agingTotal * 100).toFixed(0) + '%' : '—'}</td></tr>`).join('')}</tbody></table>
         <p class="hint">未回款合计 ${fmtMoney(agingTotal)}。“部分回款”按计划金额全额计入；CRM 未提供已回部分的金额。</p>`;
-      $('#byWho').innerHTML = `<h2>按业务员（未回款）</h2><table><thead><tr><th>业务员</th><th class="num">期数</th><th class="num">未回金额</th><th class="num">其中逾期</th></tr></thead><tbody>${res.by_who.map((w) => `<tr><td>${esc(w.who)}</td><td class="num">${w.count}</td><td class="num">${fmtMoney(w.amount)}</td><td class="num ${w.overdue ? 'down' : ''}">${fmtMoney(w.overdue)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">无</td></tr>'}</tbody></table>`;
+      $('#byWho').innerHTML = `<h2>按业务员（未回款） <button class="btn small" data-export="receivables_by_who" title="把这张汇总表导出 .xlsx">导出汇总</button></h2>
+        <table><thead><tr><th>业务员</th><th class="num">期数</th><th class="num">未回金额</th><th class="num">逾期期数</th><th class="num">逾期金额</th><th></th></tr></thead><tbody>
+        ${res.by_who.map((w) => `<tr class="${w.part && w.part === $('[name=who]').value ? 'total' : ''}"><td><a data-who-plans="${esc(w.part || '')}" title="${w.part === $('[name=who]').value ? '取消筛选' : '只看此人的逾期货款'}">${esc(w.who)}</a></td><td class="num">${w.count}</td><td class="num">${fmtMoney(w.amount)}</td>
+          <td class="num ${w.overdue_count ? 'down' : 'muted'}">${fmtInt(w.overdue_count)}</td><td class="num ${w.overdue ? 'down' : 'muted'}">${fmtMoney(w.overdue)}</td>
+          <td class="nowrap small">${w.overdue_count ? `<a data-who-export="${esc(w.part || '')}" title="导出此人的逾期清单">导出逾期</a>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">无</td></tr>'}
+        </tbody></table><p class="note">这张表不受上面“业务员”筛选影响，可随时切人。点姓名只看此人的逾期货款（再点一次取消）；“导出逾期”按当前日期与客户条件导出该业务员的逾期明细。</p>`;
+      $('#byWho').querySelectorAll('a[data-who-plans]').forEach((a) => a.addEventListener('click', () => {
+        const on = $('[name=who]').value === a.dataset.whoPlans;
+        $('[name=who]').value = on ? '' : a.dataset.whoPlans;
+        if (!on) $('[name=status]').value = 'overdue';
+        load(1);
+      }));
+      $('#byWho').querySelectorAll('a[data-who-export]').forEach((a) => a.addEventListener('click', () => {
+        location.href = exportUrl('receivables', { ...readFilters($('#filters')), who: a.dataset.whoExport, status: 'overdue', tab: 'plans' });
+      }));
+      $('#byWho').querySelectorAll('button[data-export]').forEach((b) => b.addEventListener('click', () => {
+        location.href = exportUrl('receivables_by_who', readFilters($('#filters')));
+      }));
+      const arrow = (key) => res.sort === key ? `<span class="sort-arrow">${res.dir === 'asc' ? '▲' : '▼'}</span>` : '<span class="sort-arrow dim">↕</span>';
+      const th = (key, label, cls) => `<th class="${cls ? cls + ' ' : ''}sortable" data-sort="${key}">${label}${arrow(key)}</th>`;
+      $('#planSortUi').innerHTML = PLAN_SORT_OPTS.map(([k, label, d, a]) =>
+        `<option value="${k}:desc" ${res.sort === k && res.dir !== 'asc' ? 'selected' : ''}>${label} ${d}</option><option value="${k}:asc" ${res.sort === k && res.dir === 'asc' ? 'selected' : ''}>${label} ${a}</option>`).join('');
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 期，金额合计 <b>${fmtMoney(res.amount)}</b></p>
-        <table><thead><tr><th>计划日期</th><th>客户</th><th>订单号</th><th class="num">期次</th><th class="num">金额</th><th>状态</th><th>业务员</th><th>备注</th></tr></thead><tbody>
+        <table><thead><tr>${th('date', '计划日期')}${th('customer', '客户')}<th>订单号</th>${th('serial', '期次', 'num')}${th('amount', '金额', 'num')}${th('overdue', '状态')}${th('who', '业务员')}<th>备注</th></tr></thead><tbody>
         ${res.rows.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td class="lead">${custLink(p.customer)}</td><td class="nowrap">${orderLink(p.order_id, p.order_no)}</td><td class="num">${esc(p.serial || '')}</td><td class="num">${fmtMoney(p.amount)}</td><td>${planTag(p)}</td><td class="nowrap">${esc(p.who)}</td><td class="ellipsis small" title="${esc(p.memo)}">${esc(p.memo || '')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">没有符合条件的记录</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
+      list.querySelectorAll('th.sortable').forEach((el) => el.addEventListener('click', () => { setPlanSort(el.dataset.sort); load(1); }));
       bindLinks(list);
     } catch (e) { list.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
     list.classList.remove('loading');
   };
+  const setPlanSort = (key) => {   // 点表头：同一列切升降序；换列时日期 / 姓名从早从前，金额与逾期从大到小
+    const cur = $('[name=sort]').value, dir = $('[name=dir]').value;
+    $('[name=sort]').value = key;
+    $('[name=dir]').value = cur === key && dir !== 'asc' ? 'asc' : cur === key ? 'desc' : (key === 'date' || key === 'who' || key === 'customer' ? 'asc' : 'desc');
+  };
+  $('#planSortUi').addEventListener('change', (e) => {
+    const [key, dir] = e.target.value.split(':');
+    $('[name=sort]').value = key; $('[name=dir]').value = dir; load(1);
+  });
   wireFilters(body, load, { status: 'open' });
   bindExport(body, () => readFilters($('#filters')));
   load(Number(f.page) || 1);
@@ -898,6 +931,10 @@ async function pageCustomerAnalysis(view, params) {
 // ------------------------------------------------------------------ 页面：产品与库存（0.5）
 // 计量单位：CRM 未填时按色谱填料默认公斤，显示上标注出来（产品编号里的 20kg/桶 是包装规格，不是单位）
 const unitTag = (p) => p.unit ? ` <span class="muted small"${p.unit_assumed ? ' title="CRM 未填计量单位，色谱填料按公斤计"' : ''}>${esc(p.unit)}${p.unit_assumed ? '*' : ''}</span>` : '';
+
+// 应收计划的排序项（窄屏下拉用；桌面点表头）
+const PLAN_SORT_OPTS = [['date', '计划日期', '晚→早', '早→晚'], ['overdue', '逾期天数', '多→少', '少→多'], ['amount', '金额', '高→低', '低→高'],
+  ['serial', '期次', '大→小', '小→大'], ['who', '业务员', 'Z→A', 'A→Z'], ['customer', '客户编号', 'Z→A', 'A→Z']];
 
 // 窄屏卡片模式下表头不可见，用下拉代替点表头排序
 const sortOptions = (byModel) => [

@@ -57,6 +57,10 @@ RECEIVABLE_COLS: List[Col] = [
     ("计划日期", lambda r: r.get("date")), ("客户", _cust()), ("订单号", lambda r: r.get("order_no")), ("期次", lambda r: r.get("serial")), ("金额", lambda r: _num(r.get("amount"))),
     ("状态", lambda r: r.get("status_text")), ("逾期天数", lambda r: r.get("overdue_days")), ("业务员", lambda r: r.get("who")), ("备注", lambda r: r.get("memo")),
 ]
+RECEIVABLE_WHO_COLS: List[Col] = [
+    ("业务员", lambda r: r.get("who")), ("未回期数", lambda r: r.get("count")), ("未回金额", lambda r: _num(r.get("amount"))),
+    ("逾期期数", lambda r: r.get("overdue_count")), ("逾期金额", lambda r: _num(r.get("overdue"))),
+]
 RECEIPT_COLS: List[Col] = [
     ("日期", lambda r: r.get("date")), ("客户", _cust()), ("订单号", lambda r: r.get("order_no")), ("金额", lambda r: _num(r.get("amount"))), ("币种", lambda r: r.get("money_type")),
     ("付款方式", lambda r: r.get("type_text")), ("分类", lambda r: r.get("ctype_text")), ("开票", lambda r: r.get("invoice_text")), ("期次", lambda r: r.get("serial")),
@@ -123,6 +127,7 @@ def build_export(q: Any, kind: str) -> Download:
         "orders": ("订单", lambda: q.orders()["rows"], ORDER_COLS),
         "customers": ("客户", lambda: q.customers()["rows"], CUSTOMER_COLS),
         "receivables": ("计划回款", lambda: q.receivables()["rows"], RECEIVABLE_COLS),
+        "receivables_by_who": ("未回款按业务员", lambda: q.receivables()["by_who"], RECEIVABLE_WHO_COLS),
         "receipts": ("回款记录", lambda: q.receipts()["rows"], RECEIPT_COLS),
         "actions": ("工作日志", lambda: q.actions()["rows"], ACTION_COLS),
         "products": ("产品", lambda: q.products()["rows"], PRODUCT_COLS),

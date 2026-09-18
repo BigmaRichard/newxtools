@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sync import SPEC_BY_DT, Store  # noqa: E402
+from web.export import build_export  # noqa: E402
 from web.server import Lookups, Mirror, Query, make_server  # noqa: E402
 
 TODAY = __import__("datetime").date.today()
@@ -588,3 +589,21 @@ def test_sales_product_dimension_merges_batches_of_one_model(tmp_path):
     # 业务员看板与总览的产品 Top 榜同样按型号
     top = query(who="M9", year=THIS_YEAR).salesperson()["top_products"]
     assert top[0]["model_name"] == "SP-100-8-C4-NP" and top[0]["batches"] == 2 and top[0]["amount"] == 12000.0
+
+
+def test_receivables_sorting_and_by_who_export(q):
+    """应收计划：表头排序（金额 / 逾期天数）、按业务员汇总带逾期期数、按业务员导出逾期。"""
+    amt = q(status="all", sort="amount", dir="desc").receivables()
+    assert amt["sort"] == "amount" and amt["dir"] == "desc"
+    assert [r["amount"] for r in amt["rows"]] == sorted([r["amount"] for r in amt["rows"]], reverse=True)
+    asc = q(status="all", sort="amount", dir="asc").receivables()
+    assert [r["amount"] for r in asc["rows"]] == sorted([r["amount"] for r in asc["rows"]])
+    od = q(status="open", sort="overdue", dir="desc").receivables()          # 逾期最久的排最前
+    assert [r["overdue_days"] for r in od["rows"]] == sorted([r["overdue_days"] for r in od["rows"]], reverse=True)
+    assert q(status="open", sort="date_desc").receivables()["dir"] == "desc"  # 兼容 0.6 之前的下拉值
+    who = {w["who"]: w for w in q(status="open").receivables()["by_who"]}
+    assert who["王勇尊"]["overdue_count"] == 1 and who["王勇尊"]["overdue"] == 2000.0
+    dl = build_export(q(status="overdue", who="M9"), "receivables")
+    assert dl.filename.startswith("计划回款_") and dl.data[:2] == b"PK"
+    summary = build_export(q(status="open"), "receivables_by_who")
+    assert summary.filename.startswith("未回款按业务员_") and summary.data[:2] == b"PK"

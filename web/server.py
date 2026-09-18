@@ -769,15 +769,17 @@ class Query(ReportQueries):
             args.append(self.today.isoformat())
         elif status == "done":
             clauses.append("g.status = '1'")
-        if self.get("who"):
-            clauses.append("g.who = ?")
-            args.append(self.get("who"))
         self.customer_clause("g", clauses, args)
         self.date_clause("g", clauses, args)
         q = self.get("q")
         if q:
             args.append(f"%{q}%")
             clauses.append(f"(g.co_sn LIKE ? OR {self.name_search_clause('g', q, args)})")
+        # 业务员条件放最后：按业务员汇总表不受它影响，这样选了某人之后还能直接切到别人
+        where_all, base_args = " WHERE " + " AND ".join(clauses), list(args)
+        if self.get("who"):
+            clauses.append("g.who = ?")
+            args.append(self.get("who"))
         where = " WHERE " + " AND ".join(clauses)
         page, size, offset = self.page()
         total = self.one(f"SELECT COUNT(*) n, SUM(CAST(g.money AS REAL)) a FROM gathering g{where}", args) or {}
@@ -793,15 +795,32 @@ class Query(ReportQueries):
             [today] * 8 + list(args),
         ) or {}
         by_who = [
-            {"who": self.lk.user_name(r["who"]), "part": r["who"], "count": r["n"], "amount": money(r["a"]), "overdue": money(r["od"])}
+            {"who": self.lk.user_name(r["who"]), "part": r["who"], "count": r["n"], "amount": money(r["a"]),
+             "overdue": money(r["od"]), "overdue_count": r["odn"] or 0}
             for r in self.rows(
-                f"SELECT g.who, COUNT(*) n, SUM(CAST(g.money AS REAL)) a, SUM(CASE WHEN g.date < ? THEN CAST(g.money AS REAL) ELSE 0 END) od FROM gathering g{where} AND g.status IN ('2','4') GROUP BY g.who ORDER BY a DESC LIMIT 15",
-                [today, *args])
+                "SELECT g.who, COUNT(*) n, SUM(CAST(g.money AS REAL)) a, SUM(CASE WHEN g.date < ? THEN CAST(g.money AS REAL) ELSE 0 END) od, "
+                f"SUM(CASE WHEN g.date < ? THEN 1 ELSE 0 END) odn FROM gathering g{where_all} AND g.status IN ('2','4') GROUP BY g.who ORDER BY a DESC LIMIT 50",
+                [today, today, *base_args])
         ]
-        sort = {"amount": "CAST(g.money AS REAL) DESC", "date_desc": "g.date DESC, g.id DESC"}.get(self.get("sort"), "g.date ASC, g.id ASC")
-        rows = self.rows(f"SELECT g.* FROM gathering g{where} ORDER BY {sort} LIMIT ? OFFSET ?", [*args, size, offset])
-        return {"total": total.get("n") or 0, "amount": money(total.get("a")), "page": page, "size": size,
+        key, direction = self.plan_sort()
+        rows = self.rows(f"SELECT g.* FROM gathering g{where} ORDER BY {self.PLAN_SORTS[key]} {direction}, g.id LIMIT ? OFFSET ?", [*args, size, offset])
+        return {"total": total.get("n") or 0, "amount": money(total.get("a")), "page": page, "size": size, "sort": key, "dir": direction.lower(),
                 "aging": {k: money(aging.get(k)) for k in ("not_due", "d30", "d90", "d365", "d365p")}, "by_who": by_who, "rows": [self.plan_row(g) for g in rows]}
+
+    # 计划回款列表的排序：表头箭头传 sort + dir；"逾期" = 计划日期越早逾期越久，所以用 -julianday
+    PLAN_SORTS = {"date": "g.date", "amount": "CAST(g.money AS REAL)", "serial": "CAST(g.serial AS REAL)",
+                  "overdue": "-julianday(g.date)", "who": "g.who", "customer": "g.cu_sn"}
+    TEXT_PLAN_SORTS = ("who", "customer")
+
+    def plan_sort(self) -> Tuple[str, str]:
+        key, direction = self.get("sort") or "date", (self.get("dir") or "").lower()
+        if key == "date_desc":                                  # 0.6 之前的下拉值
+            key, direction = "date", "desc"
+        if key not in self.PLAN_SORTS:
+            key = "date"
+        if direction not in ("asc", "desc"):
+            direction = "asc" if key in ("date", *self.TEXT_PLAN_SORTS) else "desc"
+        return key, "ASC" if direction == "asc" else "DESC"
 
     # ---- 回款记录
     def receipt_row(self, n: Dict[str, Any]) -> Dict[str, Any]:
