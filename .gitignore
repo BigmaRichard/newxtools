@@ -9,3 +9,6 @@ __pycache__/
 .venv/
 logs/
 reports/
+
+# Claude 桌面端把聊天里发的文件存到这里，不进仓库
+Claude outputs/

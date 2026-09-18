@@ -135,3 +135,37 @@ def test_install_script_generates_password(tmp_path, monkeypatch):
     assert text.startswith("XTOOLS_COM=pc7699\n") and f"XTOOLS_WEB_PASSWORD={password}" in text
     assert mod.ensure_web_password("0.0.0.0") == ("xtools", password, False)  # 第二次沿用，不重新生成
     assert from_env(tmp_path, "0.0.0.0").check(TS_IP, "Basic " + base64.b64encode(f"xtools:{password}".encode()).decode()) is None
+
+
+FAKE_IFCONFIG = """lo0: flags=8049<UP,LOOPBACK> mtu 16384
+\tinet 127.0.0.1 netmask 0xff000000
+en0: flags=8863<UP,BROADCAST,RUNNING> mtu 1500
+\tinet 192.168.1.23 netmask 0xffffff00 broadcast 192.168.1.255
+utun4: flags=8051<UP,POINTOPOINT,RUNNING> mtu 1400
+\tinet 100.101.102.103 --> 100.101.102.103 netmask 0xffffffff
+utun6: flags=8051<UP,POINTOPOINT,RUNNING> mtu 1500
+\tinet 10.14.0.2 --> 10.14.0.2 netmask 0xffff0000
+en5: flags=8863 mtu 1500
+\tinet 10.0.8.31 netmask 0xfffffc00 broadcast 10.0.11.255"""
+
+
+def test_lan_networks_skips_vpn_interfaces(monkeypatch):
+    """--allow-lan 只认有线 / 无线网卡的私有网段，Tailscale 与 Surfshark 之类的 utun 接口不算。"""
+    mod = install_module()
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": FAKE_IFCONFIG})())
+    assert mod.lan_networks() == ["192.168.1.0/24", "10.0.8.0/22"]
+    assert mod.local_ips() == ["192.168.1.23", "10.0.8.31"]
+
+
+def test_ensure_allow_merges_into_dotenv(tmp_path, monkeypatch):
+    monkeypatch.delenv("XTOOLS_WEB_ALLOW", raising=False)
+    monkeypatch.delenv("XTOOLS_WEB_PASSWORD", raising=False)
+    mod = install_module()
+    monkeypatch.setattr(mod, "ROOT", tmp_path)
+    (tmp_path / ".env").write_text("XTOOLS_COM=pc7699\nXTOOLS_WEB_USER=mw\nXTOOLS_WEB_PASSWORD=secret\n", encoding="utf-8")
+    assert mod.ensure_allow(["192.168.1.0/24"]) == "192.168.1.0/24"
+    assert "XTOOLS_WEB_ALLOW=192.168.1.0/24" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert mod.ensure_allow(["192.168.1.0/24", "10.0.8.0/22"]) == "192.168.1.0/24,10.0.8.0/22"   # 保留已有、追加新的
+    assert (tmp_path / ".env").read_text(encoding="utf-8").count("XTOOLS_WEB_ALLOW=") == 1        # 就地改写，不重复追加
+    a = from_env(tmp_path, "0.0.0.0")
+    assert a.check("192.168.1.9", BASIC) is None and a.check("10.0.8.9", BASIC) is None and a.check("172.16.0.1", BASIC)[0] == 403

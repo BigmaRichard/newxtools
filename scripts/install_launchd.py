@@ -6,6 +6,7 @@
     python scripts/install_launchd.py --web           # 前台：常驻 http://127.0.0.1:8790（退出自动拉起）
     python scripts/install_launchd.py --web --port 8801
     python scripts/install_launchd.py --web --host 0.0.0.0   # 供手机经 Tailscale 访问：自动生成访问密码写入 .env
+    python scripts/install_launchd.py --web --host 0.0.0.0 --allow-lan   # 另放行本机所在的局域网（同一 Wi-Fi 的手机不必开 VPN）
     python scripts/install_launchd.py --uninstall     # 卸载同步任务
     python scripts/install_launchd.py --web --uninstall
 
@@ -16,7 +17,9 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import plistlib
+import re
 import secrets
 import socket
 import subprocess
@@ -57,6 +60,67 @@ def ensure_web_password(host: str):
         fh.write(f"{prefix}\n# 前台访问密码（手机 / 其他设备经 Tailscale 访问时使用；本机访问免密）\n"
                  f"XTOOLS_WEB_USER={user}\nXTOOLS_WEB_PASSWORD={password}\n")
     return user, password, True
+
+
+def local_ips() -> list:
+    """本机在 en* 网卡上的 IPv4 地址。"""
+    try:
+        out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:  # noqa: BLE001
+        return []
+    ips, iface = [], ""
+    for line in out.splitlines():
+        if line and not line[0].isspace():
+            iface = line.split(":")[0]
+            continue
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[0] == "inet" and iface.startswith("en") and not parts[1].startswith("127."):
+            ips.append(parts[1])
+    return ips
+
+
+def lan_networks() -> list:
+    """本机有线 / 无线网卡上的私有网段（en* 接口；VPN 的 utun 接口不算）。"""
+    try:
+        out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:  # noqa: BLE001
+        return []
+    nets, iface = [], ""
+    for line in out.splitlines():
+        if line and not line[0].isspace():
+            iface = line.split(":")[0]
+            continue
+        parts = line.strip().split()
+        if len(parts) >= 4 and parts[0] == "inet" and iface.startswith("en"):
+            try:
+                prefix = bin(int(parts[3], 16)).count("1") if parts[3].startswith("0x") else int(parts[3])
+                net = ipaddress.ip_network(f"{parts[1]}/{prefix}", strict=False)
+            except ValueError:
+                continue
+            if net.is_private and not net.is_loopback and net.prefixlen >= 16 and str(net) not in nets:
+                nets.append(str(net))
+    return nets
+
+
+def ensure_allow(networks: list) -> str:
+    """把网段并入 .env 的 XTOOLS_WEB_ALLOW（已有的保留），返回最终值。"""
+    env = load_dotenv(ROOT)
+    current = [x.strip() for x in (env.get("XTOOLS_WEB_ALLOW") or "").replace(";", ",").split(",") if x.strip()]
+    merged = current + [n for n in networks if n not in current]
+    value = ",".join(merged)
+    if not merged or value == env.get("XTOOLS_WEB_ALLOW"):
+        return value
+    path = ROOT / ".env"
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    line = f"XTOOLS_WEB_ALLOW={value}\n"
+    if re.search(r"^XTOOLS_WEB_ALLOW=.*$", text, re.M):
+        text = re.sub(r"^XTOOLS_WEB_ALLOW=.*$", line.rstrip("\n"), text, count=1, flags=re.M)
+        path.write_text(text, encoding="utf-8")
+    else:
+        prefix = "" if (not text or text.endswith("\n")) else "\n"
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"{prefix}\n# 除本机与 Tailscale 外额外放行的网段（局域网访问用）\n{line}")
+    return value
 
 
 def tailscale_ip() -> str:
@@ -160,6 +224,7 @@ def main() -> int:
     parser.add_argument("--interval", type=int, default=1800, help="同步间隔秒数，缺省 1800")
     parser.add_argument("--port", type=int, default=DEFAULT_WEB_PORT, help=f"前台端口，缺省 {DEFAULT_WEB_PORT}")
     parser.add_argument("--host", default="127.0.0.1", help="前台监听地址；手机经 Tailscale 访问用 0.0.0.0（会自动生成访问密码）")
+    parser.add_argument("--allow-lan", action="store_true", help="额外放行本机所在的局域网网段（同一 Wi-Fi 的手机不必开 VPN；写入 .env 的 XTOOLS_WEB_ALLOW）")
     parser.add_argument("--uninstall", action="store_true")
     args = parser.parse_args()
     kind = "web" if args.web else "sync"
@@ -175,6 +240,13 @@ def main() -> int:
             print(f"    .venv/bin/python scripts/install_launchd.py --web --port {args.port + 11}")
             return 3
         user, password, created = ensure_web_password(args.host)
+        lans = []
+        if args.allow_lan:
+            lans = lan_networks()
+            if lans:
+                ensure_allow(lans)
+            else:
+                print("未找到本机的局域网地址（en* 网卡），跳过 --allow-lan")
         code = install("web", [str(ROOT / "scripts" / "web.py"), "--port", str(args.port), "--host", args.host], {"KeepAlive": True, "ThrottleInterval": 30},
                        f"前台常驻 http://127.0.0.1:{args.port}（退出后自动拉起）")
         if code:
@@ -188,7 +260,10 @@ def main() -> int:
                 print(f"    账号：{user}    密码：{password}" + ("（本次新生成，已写入 .env）" if created else "（.env 中的现有密码）"))
                 if not ip:
                     print("    注：本机尚未取得 Tailscale 地址，装好并登录 Tailscale 后用 `tailscale ip -4` 查看")
-                print("    本机浏览器打开 127.0.0.1 时不需要密码；其他来源只放行 Tailscale 网段。")
+                if lans:
+                    print(f"\n同一 Wi-Fi 下（不必开 VPN）：http://{(local_ips() or ['<本机局域网地址>'])[0]}:{args.port}")
+                    print(f"    已放行网段：{', '.join(lans)}（同一网络内的其他设备也能访问，仍需上面的账号密码）")
+                print("    本机浏览器打开 127.0.0.1 时不需要密码。")
             return 0
         print(f"前台未在 8 秒内响应，请看 {ROOT / 'logs' / 'launchd.web.err.log'}")
         return 4
