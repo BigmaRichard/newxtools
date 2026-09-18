@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import difflib
 import json
 import logging
 import re
@@ -48,6 +49,35 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("xtools.web")
 
 CANCELLED = "3"  # contract.status 意外中止：金额统计时剔除
+# 工作日志查重：与同一客户此前若干条比对，找“套模板 / 复制粘贴”的痕迹
+DUP_PEERS = 10          # 每条记录回看同客户此前多少条
+DUP_SCAN = 60           # 每个客户最多取多少条参与比对
+DUP_MIN_LEN = 12        # 正文短于这个长度不比（问候语之类）
+DUP_BLOCK = 8           # 连续相同 ≥ 8 个字才算重复片段
+DUP_DIFF_AT = 0.3       # 覆盖率到这个值才去定位具体片段（difflib 较慢）
+DUP_ALERT = 0.7         # 覆盖率 ≥ 70% 视为高度雷同，前台标红
+DUP_TEXT_MAX = 240      # 返回的历史正文截断长度
+DUP_SCAN_MAX = 2000     # “只看高相似”时，在当前筛选范围内最多扫描多少条
+_DUP_STRIP = re.compile(r"[\s，。、；：（）()【】\[\]“”\"'’‘!！?？,.:;~·\-—…]+")
+
+
+def _shingles(text: str, n: int = 4) -> set:
+    """按 n 字滑窗切片，用交集比例衡量重复程度（比整串相似度更能抓住“大段照搬”）。"""
+    t = _DUP_STRIP.sub("", text or "")
+    if len(t) < n:
+        return {t} if t else set()
+    return {t[i:i + n] for i in range(len(t) - n + 1)}
+
+
+def _merge_spans(spans: List[Tuple[int, int]]) -> List[List[int]]:
+    """把重复片段的 [起点, 长度] 合并成互不重叠、按位置排好的区间。"""
+    out: List[List[int]] = []
+    for start, size in sorted(spans):
+        if out and start <= out[-1][0] + out[-1][1]:
+            out[-1][1] = max(out[-1][1], start + size - out[-1][0])
+        else:
+            out.append([start, size])
+    return out
 OPEN_PLAN = ("2", "4")  # gathering.status 未回 / 部分回款
 DICT_FIELDS = {
     "contract": ["status", "type", "confirm", "st_send", "pay_mode", "payment", *CONTRACT_CUSTOM_FIELDS],
@@ -898,6 +928,7 @@ class Query(ReportQueries):
             # 联系人的联系方式（缺失时前台标⚠）
             "contact_phone": (a.get("contact_mphone") or a.get("contact_tel") or "").strip(),
             "contact_email": (a.get("contact_email") or "").strip(), "contact_weixin": (a.get("contact_weixin") or "").strip(),
+            "dup": a.get("dup"),      # 同客户查重结果（dup=0 时不算）
         }
 
     def enrich_action_stats(self, rows: List[Dict[str, Any]]) -> None:
@@ -931,6 +962,50 @@ class Query(ReportQueries):
             amt = amounts.get(cid)
             if amt:
                 r["cust_amount"], r["cust_orders"] = money(amt[0]), amt[1]
+
+    def enrich_action_dups(self, rows: List[Dict[str, Any]]) -> None:
+        """与同一客户此前的 10 条日志比对：给出重复覆盖率、重复片段位置，以及那 10 条的摘要。"""
+        keys = {r.get("cu_sn") for r in rows if (r.get("cu_sn") or "").strip() not in ("", "[id:0]", "0")}
+        if not keys:
+            return
+        marks = ",".join("?" * len(keys))
+        by_cust: Dict[str, List[Dict[str, Any]]] = {}
+        for r in self.conn.execute(
+                "SELECT id, cu_sn, date, who, type, subject, content FROM (SELECT id, cu_sn, date, who, type, subject, content, "
+                "ROW_NUMBER() OVER (PARTITION BY cu_sn ORDER BY date DESC, id DESC) rn FROM action "
+                f"WHERE _deleted_at IS NULL AND cu_sn IN ({marks})) WHERE rn <= {DUP_SCAN} ORDER BY date DESC, id DESC", list(keys)):
+            by_cust.setdefault(r["cu_sn"], []).append(dict(r))
+        for row in rows:
+            lst = by_cust.get(row.get("cu_sn") or "")
+            text = (row.get("content") or "") or (row.get("subject") or "")   # 不 strip：片段位置要和前台显示的正文对齐
+            if not lst or len(text.strip()) < DUP_MIN_LEN:
+                continue
+            idx = next((i for i, x in enumerate(lst) if x["id"] == row["id"]), None)
+            peers = lst[idx + 1: idx + 1 + DUP_PEERS] if idx is not None else lst[:DUP_PEERS]
+            if not peers:
+                continue
+            cur_sh = _shingles(text)
+            spans: List[Tuple[int, int]] = []
+            best, best_peer, out_peers = 0.0, None, []
+            for p in peers:
+                ptext = ((p.get("content") or "").strip() or (p.get("subject") or "").strip())  # 对照文本可以 strip
+                psh = _shingles(ptext)
+                ratio = len(cur_sh & psh) / len(cur_sh) if cur_sh and psh else 0.0
+                if ratio >= DUP_DIFF_AT:
+                    for b in difflib.SequenceMatcher(None, text, ptext, autojunk=False).get_matching_blocks():
+                        if b.size >= DUP_BLOCK:
+                            spans.append((b.a, b.size))
+                if ratio > best:
+                    best, best_peer = ratio, p
+                out_peers.append({
+                    "id": p["id"], "date": p.get("date"), "who": self.lk.names_from_codes(p.get("who")),
+                    "type_text": self.lk.text("action", "type", p.get("type")), "ratio": round(ratio, 3),
+                    "content": ptext[:DUP_TEXT_MAX], "truncated": len(ptext) > DUP_TEXT_MAX,
+                })
+            row["dup"] = {
+                "ratio": round(best, 3), "alert": best >= DUP_ALERT, "marks": _merge_spans(spans), "peers": out_peers,
+                "best": {"id": best_peer["id"], "date": best_peer.get("date"), "who": self.lk.names_from_codes(best_peer.get("who"))} if best_peer and best > 0 else None,
+            }
 
     def enrich_actions(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """标出记录文字里提到的该客户其他联系人（按 CRM 联系人表匹配；未建档的人名识别不了）。"""
@@ -985,14 +1060,42 @@ class Query(ReportQueries):
                 acc[0] += r["n"]
                 acc[1] += r["chars"] or 0
         by_who = [{"who": self.lk.user_name(k), "part": k, "count": v[0], "chars": v[1]} for k, v in sorted(who_counts.items(), key=lambda kv: -kv[1][0])[:20]]
-        # 日期录错成未来（如 2224-06-12）的记录排到正常记录之后，不再顶在最新一条前面
-        rows = self.enrich_actions(self.rows(
-            "SELECT a.*, k.name AS contact_name, k.mphone AS contact_mphone, k.phone AS contact_tel, k.email AS contact_email, k.weixin AS contact_weixin "
-            f"FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER){where} "
-            "ORDER BY (CASE WHEN a.date > ? THEN 1 ELSE 0 END), a.date DESC, a.id DESC LIMIT ? OFFSET ?",
-            [*args, self.today.isoformat(), size, offset]))
-        self.enrich_action_stats(rows)
-        return {"total": total, "page": page, "size": size, "by_type": by_type, "by_day": by_day, "by_who": by_who, "rows": [self.action_row(a) for a in rows]}
+        detail_sql = ("SELECT a.*, k.name AS contact_name, k.mphone AS contact_mphone, k.phone AS contact_tel, k.email AS contact_email, k.weixin AS contact_weixin "
+                      "FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER)")
+        dup_on = self.get("dup", "1") not in ("0", "", "off", "false")
+        dup_min = _int(self.get("dup_min"), 0)
+        scanned = 0
+        if dup_on and dup_min > 0:
+            # 查重筛选：在当前条件下先扫一批，算完相似度再按相似度排序分页（找“照搬”用）
+            scan = self.rows(f"SELECT a.id, a.cu_sn, a.date, a.who, a.type, a.subject, a.content FROM action a{where} "
+                             f"ORDER BY a.date DESC, a.id DESC LIMIT {DUP_SCAN_MAX}", args)
+            scanned = len(scan)
+            self.enrich_action_dups(scan)
+            hits = sorted((r for r in scan if (r.get("dup") or {}).get("ratio", 0) >= dup_min / 100),
+                          key=lambda r: -r["dup"]["ratio"])
+            total = len(hits)
+            picked = hits[offset:offset + size]
+            rows = []
+            if picked:
+                order = {r["id"]: i for i, r in enumerate(picked)}
+                marks2 = ",".join("?" * len(picked))
+                rows = self.rows(f"{detail_sql} WHERE a.id IN ({marks2})", [r["id"] for r in picked])
+                rows.sort(key=lambda r: order.get(r["id"], 0))
+                for r in rows:
+                    r["dup"] = next((x["dup"] for x in picked if x["id"] == r["id"]), None)
+            self.enrich_actions(rows)
+            self.enrich_action_stats(rows)
+        else:
+            # 日期录错成未来（如 2224-06-12）的记录排到正常记录之后，不再顶在最新一条前面
+            rows = self.enrich_actions(self.rows(
+                f"{detail_sql}{where} ORDER BY (CASE WHEN a.date > ? THEN 1 ELSE 0 END), a.date DESC, a.id DESC LIMIT ? OFFSET ?",
+                [*args, self.today.isoformat(), size, offset]))
+            self.enrich_action_stats(rows)
+            if dup_on:
+                self.enrich_action_dups(rows)
+        return {"total": total, "page": page, "size": size, "by_type": by_type, "by_day": by_day, "by_who": by_who,
+                "dup_on": dup_on, "dup_alert": DUP_ALERT, "dup_min": dup_min, "dup_scanned": scanned,
+                "rows": [self.action_row(a) for a in rows]}
 
 
 # ---------------------------------------------------------------------- HTTP

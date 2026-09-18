@@ -20,6 +20,7 @@
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --good: #0ca30c; --warn: #b87a00; --critical: #d03b3b; --critical-soft: #fbe9e9;
   --shadow: 0 8px 30px rgba(0,0,0,.12); --radius: 10px;
 }
+@media (prefers-color-scheme: dark) { mark { background: #6b5a12; color: #f7f3e0; } }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
@@ -58,6 +59,12 @@ h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600
 .group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 18px; }
 /* 应收页顶部：左边窄账龄条，右边业务员小卡并排 */
 .row-aging { grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); align-items: start; }
+mark { background: #ffe89a; color: inherit; border-radius: 2px; padding: 0 1px; }
+details.dup { margin-top: 6px; }
+details.dup > summary { cursor: pointer; font-size: 12px; color: var(--text-2); }
+details.dup > summary:hover { color: var(--accent); }
+.dup-item { border-left: 2px solid var(--border); padding: 3px 0 3px 8px; margin-top: 5px; }
+.dup-item.hot { border-left-color: var(--critical); }
 .contact-info { display: flex; flex-wrap: wrap; gap: 2px 8px; }
 .contact-info .miss { color: var(--warn); display: inline-flex; align-items: center; gap: 2px; }
 .contact-info .miss .tri { width: 11px; height: 11px; }
@@ -392,7 +399,20 @@ function planAlert(plans) {
   if (open.length) return `<span class="title-due" title="${open.length} 期未到期">未回 ${fmtMoney(open.reduce((s, p) => s + (p.amount || 0), 0))}</span>`;
   return '';
 }
-const actionText = (a) => `${a.subject ? `<div><b style="font-weight:500">${esc(a.subject)}</b></div>` : ''}${a.content ? `<pre class="content">${esc(a.content)}</pre>` : ''}`;
+// 查重：把与同客户历史日志重复的片段标黄（marks 是正文里的 [起点, 长度]）
+const markDup = (text, marks) => {
+  if (!marks || !marks.length) return esc(text);
+  let out = '', pos = 0;
+  marks.forEach(([st, len]) => { if (st < pos) return; out += esc(text.slice(pos, st)) + `<mark>${esc(text.slice(st, st + len))}</mark>`; pos = st + len; });
+  return out + esc(text.slice(pos));
+};
+const dupTag = (a) => a.dup && a.dup.alert
+  ? `<div><span class="tag bad" title="与同一客户此前的日志有大段相同，请人工核对是否照搬">疑似照搬 ${Math.round(a.dup.ratio * 100)}%${a.dup.best && a.dup.best.date ? ` · 见 ${esc(a.dup.best.date)}` : ''}</span></div>`
+  : '';
+const dupPeers = (a) => a.dup && a.dup.peers && a.dup.peers.length
+  ? `<details class="dup"><summary>同客户最近 ${a.dup.peers.length} 条对比 <span class="muted">最高相似 ${Math.round(a.dup.ratio * 100)}%</span></summary>${a.dup.peers.map((p) => `<div class="dup-item ${p.ratio >= 0.7 ? 'hot' : ''}"><div class="muted small">${esc(p.date || '—')} · ${esc((p.who || []).join('、'))}${p.type_text ? ` · ${esc(p.type_text)}` : ''} · 相似 ${Math.round(p.ratio * 100)}%</div><div class="small">${esc(p.content || '')}${p.truncated ? '…' : ''}</div></div>`).join('')}</details>`
+  : '';
+const actionText = (a) => `${a.subject ? `<div><b style="font-weight:500">${esc(a.subject)}</b></div>` : ''}${dupTag(a)}${a.content ? `<pre class="content">${a.dup ? markDup(a.content, a.dup.marks) : esc(a.content)}</pre>` : ''}${dupPeers(a)}`;
 const mentions = (a) => a.mentions && a.mentions.length ? `<div class="muted small">提及 ${esc(a.mentions.join('、'))}</div>` : '';
 // 工作日志里客户维度的补充信息：这是第几次拜访、上一次什么时候、该客户历史订单额
 const visitInfo = (a) => a.visit_no ? `<div class="muted small">第 ${fmtInt(a.visit_no)} / ${fmtInt(a.visit_total)} 次${a.prev_visit ? ` · 上次 ${esc(a.prev_visit)}` : ' · 首次'}${a.cust_amount ? ` · <span class="money-sm" title="该客户历史订单额（不含意外中止）${a.cust_orders ? `，共 ${a.cust_orders} 单` : ''}">${fmtWan(a.cust_amount)}</span>` : ''}</div>` : '';
@@ -846,13 +866,17 @@ async function tabReceipts(body, params) {
 
 // ------------------------------------------------------------------ 页面：工作日志
 async function pageActions(view, params) {
-  const f = { from: daysAgo(6), to: '', who: '', type: '', q: '', page: 1, ...params };
+  const f = { from: daysAgo(6), to: '', who: '', type: '', q: '', dup: '1', dup_min: '', page: 1, ...params };
   view.innerHTML = `<h1>工作日志 <span class="muted small">行动记录 · 拜访 / 电话 / 微信等</span></h1>
     <div class="filters" id="filters">
       <input type="date" name="from" value="${esc(f.from)}"><span class="sep">至</span><input type="date" name="to" value="${esc(f.to)}">
       <select name="who">${userOptions(f.who, '全部人员')}</select>
       <select name="type">${dictOptions('action.type', f.type, '全部类型')}</select>
       <input type="text" name="q" placeholder="内容关键词 / 客户名称" value="${esc(f.q)}">
+      <label class="small" title="与同一客户此前 10 条日志比对，重复的片段标黄；关掉可让页面更快"><input type="checkbox" name="dup" ${f.dup === '0' ? '' : 'checked'}> 同客户查重</label>
+      <select name="dup_min" title="只看与同客户历史日志高度重合的记录（在当前筛选范围内扫描后按相似度排序）">
+        <option value="">查重：全部记录</option><option value="40" ${f.dup_min === '40' ? 'selected' : ''}>只看相似 ≥40%</option>
+        <option value="60" ${f.dup_min === '60' ? 'selected' : ''}>只看相似 ≥60%</option><option value="80" ${f.dup_min === '80' ? 'selected' : ''}>只看相似 ≥80%</option></select>
       <span class="chips"><span class="chip" data-days="0">今天</span><span class="chip" data-days="6">近 7 天</span><span class="chip" data-days="29">近 30 天</span></span>
       <button class="btn primary" id="go">查询</button><button class="btn" id="reset">清空</button>${exportButton('actions')}
     </div>
@@ -860,6 +884,7 @@ async function pageActions(view, params) {
     <div class="card" style="margin-top:14px"><div id="list"><div class="empty">加载中…</div></div></div>`;
   const load = async (page) => {
     const q = { ...readFilters($('#filters')), page };
+    q.dup = q.dup ? '1' : '0';                 // 复选框没勾时要显式传 0，后端默认是开
     setHash('actions', q);
     const list = $('#list');
     list.classList.add('loading');
@@ -870,7 +895,8 @@ async function pageActions(view, params) {
       const maxType = Math.max(1, ...res.by_type.map((t) => t.count));
       $('#byType').innerHTML = `<h2>按类型</h2><table><tbody>${res.by_type.map((t) => `<tr><td>${esc(t.text)}</td><td style="width:60%">${inlineBar(t.count, maxType, t.count)}</td></tr>`).join('') || '<tr><td class="empty">无</td></tr>'}</tbody></table>`;
       $('#byDay').innerHTML = `<h2>按日 <span class="count">${res.by_day.length ? esc(res.by_day[0].date) + ' 起' : ''}</span></h2>${miniBars(res.by_day.map((d) => d.count), '', res.by_day.map((d) => `${d.date}：${d.count} 条`))}<p class="hint">悬停查看每日条数（手机上小图无提示，见下方列表）</p>`;
-      list.innerHTML = `<table><thead><tr><th>日期</th><th>人员</th><th>类型</th><th style="min-width:180px">客户</th><th style="min-width:150px">联系人</th><th>内容</th></tr></thead><tbody>
+      list.innerHTML = `${res.dup_min ? `<p class="summary">按相似度排序：在当前筛选范围里扫了 <b>${fmtInt(res.dup_scanned)}</b> 条，命中相似 ≥${res.dup_min}% 的 <b>${fmtInt(res.total)}</b> 条${res.dup_scanned >= 2000 ? '（扫描上限 2000 条，可缩小日期范围）' : ''}</p>` : ''}
+        <table><thead><tr><th>日期</th><th>人员</th><th>类型</th><th style="min-width:180px">客户</th><th style="min-width:150px">联系人</th><th>内容</th></tr></thead><tbody>
         ${res.rows.map((a) => `<tr><td class="nowrap">${esc(a.date || '—')}${dateFlag(a.date_flag, a.date)}${a.end_date && a.end_date !== a.date ? `<div class="muted small">至 ${esc(a.end_date)}</div>` : ''}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="nowrap small">${esc(a.type_text || a.cale_text)}</td><td class="lead">${custLink(a.customer)}${visitInfo(a)}</td><td>${esc(a.contact || '')}${contactInfo(a)}${mentions(a)}</td><td>${actionText(a)}${a.order_id ? `<div class="small">关联订单 ${orderLink(a.order_id)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">没有符合条件的记录</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));

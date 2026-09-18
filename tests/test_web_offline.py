@@ -627,3 +627,38 @@ def test_actions_future_dates_sort_last(q):
     assert all(f == "future" for f in flags[flags.index("future"):] if f != "invalid") or True
     normal = [r["date"] for r in rows if r["date_flag"] == ""]
     assert normal == sorted(normal, reverse=True)                  # 正常记录仍按日期倒序
+
+
+def test_actions_duplicate_detection(tmp_path):
+    """同客户日志查重：给出重复覆盖率、重复片段位置与对比清单；dup=0 关闭，dup_min 只看高相似。"""
+    path = tmp_path / "dup.sqlite"
+    store = Store(path)
+    seed(store)
+    base = "上门拜访纯化组长张三，谈了 C18 填料的装柱压力与寿命，客户要求下周给报价，另外问了小试样品。"
+    acts = [
+        {"id": "9001", "cu_sn": "[id:1]", "con_id": "101", "who": ",M9,", "type": "2", "cale": "1",
+         "date": f"{THIS_YEAR}-05-06", "endate": f"{THIS_YEAR}-05-06", "subject": base[:20], "content": base},
+        {"id": "9002", "cu_sn": "[id:1]", "con_id": "101", "who": ",M9,", "type": "2", "cale": "1",
+         "date": f"{THIS_YEAR}-05-20", "endate": f"{THIS_YEAR}-05-20", "subject": base[:20], "content": base + "（本次补充：客户已确认报价。）"},
+        {"id": "9003", "cu_sn": "[id:1]", "con_id": "101", "who": ",M9,", "type": "2", "cale": "1",
+         "date": f"{THIS_YEAR}-05-27", "endate": f"{THIS_YEAR}-05-27", "subject": "另一次", "content": "客户来电询问货期，答复现货两周内发出，无其他事项。"},
+    ]
+    store.upsert_raw("action", acts)
+    store.upsert_normalized(SPEC_BY_DT["action"], acts)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    rows = {r["id"]: r for r in query(size=80, from_="2000-01-01").actions()["rows"]}
+    dup = rows[9002]["dup"]                                   # 9002 几乎照搬 9001
+    assert dup["ratio"] > 0.75 and dup["alert"] is True and dup["best"]["id"] == 9001   # 追加了一句，覆盖率略降
+    start, size = dup["marks"][0]                             # 重复片段能对回正文
+    assert rows[9002]["content"][start:start + size] in base
+    assert any(p["id"] == 9001 and p["ratio"] > 0.75 for p in dup["peers"])
+    assert (rows[9003].get("dup") or {}).get("alert") is False   # 内容不同的不报警
+    assert query(size=80, from_="2000-01-01", dup=0).actions()["rows"][0].get("dup") is None
+    only = query(size=80, from_="2000-01-01", dup_min=75).actions()
+    assert only["total"] >= 1 and all(r["dup"]["ratio"] >= 0.75 for r in only["rows"])
+    assert only["dup_scanned"] > 0 and 9002 in [r["id"] for r in only["rows"]]
