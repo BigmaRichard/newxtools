@@ -607,3 +607,13 @@ def test_receivables_sorting_and_by_who_export(q):
     assert dl.filename.startswith("计划回款_") and dl.data[:2] == b"PK"
     summary = build_export(q(status="open"), "receivables_by_who")
     assert summary.filename.startswith("未回款按业务员_") and summary.data[:2] == b"PK"
+
+
+def test_receivables_by_who_aging_buckets(q):
+    """按业务员汇总带各账龄档的逾期金额（前台用四宫格图标显示）。"""
+    who = {w["who"]: w for w in q(status="open").receivables()["by_who"]}
+    aging = who["王勇尊"]["aging"]
+    assert set(aging) == {"d30", "d90", "d365", "d365p"}
+    assert sum(aging.values()) == who["王勇尊"]["overdue"]        # 四档之和 = 逾期总额
+    assert aging["d365"] == 2000.0 and aging["d30"] == 0.0       # 种子里那期是今年 4 月的计划，落在 91–365 天档
+    assert who["李勇刚(离职)"]["overdue"] == 0.0 and sum(who["李勇刚(离职)"]["aging"].values()) == 0.0

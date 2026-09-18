@@ -60,6 +60,8 @@ RECEIVABLE_COLS: List[Col] = [
 RECEIVABLE_WHO_COLS: List[Col] = [
     ("业务员", lambda r: r.get("who")), ("未回期数", lambda r: r.get("count")), ("未回金额", lambda r: _num(r.get("amount"))),
     ("逾期期数", lambda r: r.get("overdue_count")), ("逾期金额", lambda r: _num(r.get("overdue"))),
+    ("逾期≤30天", lambda r: _num((r.get("aging") or {}).get("d30"))), ("逾期31–90天", lambda r: _num((r.get("aging") or {}).get("d90"))),
+    ("逾期91–365天", lambda r: _num((r.get("aging") or {}).get("d365"))), ("逾期超1年", lambda r: _num((r.get("aging") or {}).get("d365p"))),
 ]
 RECEIPT_COLS: List[Col] = [
     ("日期", lambda r: r.get("date")), ("客户", _cust()), ("订单号", lambda r: r.get("order_no")), ("金额", lambda r: _num(r.get("amount"))), ("币种", lambda r: r.get("money_type")),

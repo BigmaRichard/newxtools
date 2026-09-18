@@ -796,11 +796,18 @@ class Query(ReportQueries):
         ) or {}
         by_who = [
             {"who": self.lk.user_name(r["who"]), "part": r["who"], "count": r["n"], "amount": money(r["a"]),
-             "overdue": money(r["od"]), "overdue_count": r["odn"] or 0}
+             "overdue": money(r["od"]), "overdue_count": r["odn"] or 0,
+             # 各账龄档的逾期金额，前台在业务员卡右下角用四宫格图标表示
+             "aging": {k: money(r[k]) for k in ("d30", "d90", "d365", "d365p")}}
             for r in self.rows(
                 "SELECT g.who, COUNT(*) n, SUM(CAST(g.money AS REAL)) a, SUM(CASE WHEN g.date < ? THEN CAST(g.money AS REAL) ELSE 0 END) od, "
-                f"SUM(CASE WHEN g.date < ? THEN 1 ELSE 0 END) odn FROM gathering g{where_all} AND g.status IN ('2','4') GROUP BY g.who ORDER BY a DESC LIMIT 50",
-                [today, today, *base_args])
+                "SUM(CASE WHEN g.date < ? THEN 1 ELSE 0 END) odn, "
+                "SUM(CASE WHEN g.date < ? AND julianday(?) - julianday(g.date) <= 30 THEN CAST(g.money AS REAL) ELSE 0 END) d30, "
+                "SUM(CASE WHEN julianday(?) - julianday(g.date) > 30 AND julianday(?) - julianday(g.date) <= 90 THEN CAST(g.money AS REAL) ELSE 0 END) d90, "
+                "SUM(CASE WHEN julianday(?) - julianday(g.date) > 90 AND julianday(?) - julianday(g.date) <= 365 THEN CAST(g.money AS REAL) ELSE 0 END) d365, "
+                f"SUM(CASE WHEN julianday(?) - julianday(g.date) > 365 THEN CAST(g.money AS REAL) ELSE 0 END) d365p FROM gathering g{where_all} "
+                "AND g.status IN ('2','4') GROUP BY g.who ORDER BY a DESC LIMIT 50",
+                [today] * 9 + list(base_args))
         ]
         key, direction = self.plan_sort()
         rows = self.rows(f"SELECT g.* FROM gathering g{where} ORDER BY {self.PLAN_SORTS[key]} {direction}, g.id LIMIT ? OFFSET ?", [*args, size, offset])

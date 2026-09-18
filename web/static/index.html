@@ -78,6 +78,12 @@ h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600
 .who-cell .top .ex { margin-left: auto; font-size: 11px; font-weight: 400; }
 .who-cell .amt { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.2px; }
 .who-cell .late { font-size: 11.5px; }
+.who-cell .mid { display: flex; align-items: flex-end; gap: 6px; }
+.who-cell .mid .col { flex: 1 1 auto; min-width: 0; }
+.sev { flex: 0 0 auto; display: grid; grid-template-columns: repeat(2, 14px); grid-auto-rows: 14px; gap: 2px; }
+.sev i { display: flex; align-items: center; justify-content: center; }
+.sev .tri { width: 13px; height: 13px; }
+.flame.sm { font-size: 12px; }
 @media (max-width: 1250px) { .who-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 1000px) { .who-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .group-cell { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--surface-2); }
@@ -254,6 +260,11 @@ tr.total td { font-weight: 600; background: var(--surface-2); }
   .who-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .who-cell { padding: 4px 7px 5px; }
   .who-cell .amt { font-size: 14px; }
+  .who-cell .late { font-size: 11px; }
+  .who-cell .mid { gap: 4px; }
+  .sev { grid-template-columns: repeat(2, 12px); grid-auto-rows: 12px; }
+  .sev .tri { width: 11px; height: 11px; }
+  .flame.sm { font-size: 11px; }
   /* 带表头的表格 → 卡片 */
   table[data-cards] thead { display: none; }
   table[data-cards], table[data-cards] tbody, table[data-cards] td { display: block; width: auto; }
@@ -711,8 +722,10 @@ async function tabPlans(body, params) {
         <div class="who-grid">${res.by_who.map((w) => `<div class="who-cell ${w.part && w.part === cur ? 'on' : ''}">
           <div class="top"><a data-who-plans="${esc(w.part || '')}" title="${w.part === cur ? '取消筛选' : '只看此人的逾期货款'}">${esc(w.who)}</a>
             <span class="muted small">${fmtInt(w.count)} 期</span>${w.overdue_count ? `<a class="ex" data-who-export="${esc(w.part || '')}" title="导出此人的逾期清单">导出</a>` : ''}</div>
-          <div class="amt">${fmtMoney(w.amount)}</div>
-          <div class="late ${w.overdue_count ? 'down' : 'muted'}">${w.overdue_count ? `逾期 ${fmtInt(w.overdue_count)} 期 · ${fmtMoney(w.overdue)}` : '无逾期'}</div>
+          <div class="mid"><div class="col">
+            <div class="amt">${fmtMoney(w.amount)}</div>
+            <div class="late ${w.overdue_count ? 'down' : 'muted'}">${w.overdue_count ? `逾期 ${fmtInt(w.overdue_count)} 期 · ${fmtMoney(w.overdue)}` : '无逾期'}</div>
+          </div>${sevGrid(w.aging)}</div>
         </div>`).join('') || '<div class="empty">无</div>'}</div>
         <p class="note">这块不受上面“业务员”筛选影响，可随时切人。点姓名只看此人的逾期货款（再点一次取消）；“导出”按当前日期与客户条件导出该业务员的逾期明细。</p>`;
       $('#byWho').querySelectorAll('a[data-who-plans]').forEach((a) => a.addEventListener('click', () => {
@@ -984,6 +997,16 @@ const unitTag = (p) => p.unit ? ` <span class="muted small"${p.unit_assumed ? ' 
 const triIcon = (cls, title) => `<svg class="tri ${cls}" viewBox="0 0 24 24" aria-hidden="false"><title>${title}</title>`
   + `<path d="M11.13 2.6a1 1 0 0 1 1.74 0l10.1 17.9A1 1 0 0 1 22.1 22H1.9a1 1 0 0 1-.87-1.5L11.13 2.6Z" fill="currentColor"/>`
   + `<path class="mark" d="M12 9v5" fill="none"/><path class="mark" d="M12 17.6h.01" fill="none"/></svg>`;
+
+// 业务员卡右下角的四宫格：四个账龄档各占一格，有欠款才显示图标（位置固定，便于横向比较）
+const SEV_CELLS = [['d30', 't-gold', '逾期 ≤30 天'], ['d90', 't-red', '逾期 31–90 天'], ['d365', 't-dark', '逾期 91–365 天'], ['d365p', 'flame', '逾期超过 1 年']];
+const sevGrid = (aging) => {
+  const a = aging || {};
+  if (!SEV_CELLS.some(([k]) => a[k] > 0)) return '';
+  return `<div class="sev">${SEV_CELLS.map(([k, cls, label]) => !(a[k] > 0) ? '<i></i>'
+    : cls === 'flame' ? `<i title="${label} ${fmtMoney(a[k])}"><span class="flame sm">🔥</span></i>`
+    : `<i>${triIcon(cls, `${label} ${fmtMoney(a[k])}`)}</i>`).join('')}</div>`;
+};
 
 // 应收计划的排序项（窄屏下拉用；桌面点表头）
 const PLAN_SORT_OPTS = [['date', '计划日期', '晚→早', '早→晚'], ['overdue', '逾期天数', '多→少', '少→多'], ['amount', '金额', '高→低', '低→高'],
