@@ -396,8 +396,8 @@ class Query:
         libouts = []
         for x in self.rows("SELECT l.*, (SELECT COUNT(*) FROM libout_items i WHERE i.libout_id = l.id) items FROM libout l WHERE l._deleted_at IS NULL AND l.co_sn = ? ORDER BY l.date DESC, l.id DESC", [r.get("no_") or ""]):
             libouts.append({"id": x["id"], "date": x.get("date"), "title": x.get("title"), "libname": x.get("libname"), "who": self.lk.user_name(x.get("who")), "items": x.get("items") or 0, "memo": x.get("memo")})
-        actions = [self.action_row(a) for a in self.rows(
-            "SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER) WHERE a._deleted_at IS NULL AND a.co_id = ? ORDER BY a.date DESC, a.id DESC LIMIT 30", [str(oid)])]
+        actions = [self.action_row(a) for a in self.enrich_actions(self.rows(
+            "SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER) WHERE a._deleted_at IS NULL AND a.co_id = ? ORDER BY a.date DESC, a.id DESC LIMIT 30", [str(oid)]))]
         extras = self.raw_extras("contract", oid, set(r.keys()) | {"goods"})
         return {"order": order, "goods": goods, "receipts": receipts, "plans": plans, "shipments": shipments, "libouts": libouts, "actions": actions, "extras": extras}
 
@@ -476,8 +476,8 @@ class Query:
         orders = [self.order_row(r) for r in self.enrich_orders(self.rows(f"{self.ORDER_SELECT} WHERE o._deleted_at IS NULL AND o.cu_sn IN ({marks}) ORDER BY o.date DESC, o.id DESC LIMIT 50", keys))]
         receipts = [self.receipt_row(x) for x in self.rows(f"SELECT * FROM gathering_note WHERE _deleted_at IS NULL AND cu_sn IN ({marks}) ORDER BY date DESC, id DESC LIMIT 50", keys)]
         plans = [self.plan_row(x) for x in self.rows(f"SELECT * FROM gathering WHERE _deleted_at IS NULL AND status IN ('2','4') AND cu_sn IN ({marks}) ORDER BY date", keys)]
-        actions = [self.action_row(a) for a in self.rows(
-            f"SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER) WHERE a._deleted_at IS NULL AND a.cu_sn IN ({marks}) ORDER BY a.date DESC, a.id DESC LIMIT 50", keys)]
+        actions = [self.action_row(a) for a in self.enrich_actions(self.rows(
+            f"SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER) WHERE a._deleted_at IS NULL AND a.cu_sn IN ({marks}) ORDER BY a.date DESC, a.id DESC LIMIT 50", keys))]
         yearly = [
             {"year": r["y"], "count": r["n"], "amount": money(r["a"])}
             for r in self.rows(f"SELECT substr(date,1,4) y, COUNT(*) n, SUM(CAST(sum AS REAL)) a FROM contract WHERE _deleted_at IS NULL AND status <> '3' AND cu_sn IN ({marks}) GROUP BY y ORDER BY y", keys)
@@ -602,14 +602,47 @@ class Query:
         return "future" if value > self.today.isoformat() else ""
 
     def action_row(self, a: Dict[str, Any]) -> Dict[str, Any]:
-        subject, content = a.get("subject") or "", a.get("content") or ""
+        """一行 = CRM 中的一条行动记录（业务员自行录入，一条记录只挂一个客户与一个联系人）。
+
+        CRM 的 subject 字段截断为 128 字，长记录的 subject 只是 content 的开头，展示时去重；
+        content 为多段文字时保留换行。
+        """
+        subject, content = (a.get("subject") or "").strip(), (a.get("content") or "").strip()
+        if content and (content == subject or content.startswith(subject)):
+            text, title = content, ""
+        elif content and subject:
+            text, title = content, subject
+        else:
+            text, title = content or subject, ""
         return {
             "id": a["id"], "date": a.get("date"), "end_date": a.get("endate"), "date_flag": self.date_flag(a.get("date")),
             "cale_text": self.lk.text("action", "cale", a.get("cale")),
             "type": a.get("type"), "type_text": self.lk.text("action", "type", a.get("type")), "who": self.lk.names_from_codes(a.get("who")),
-            "customer": self.lk.customer(a.get("cu_sn")), "contact": a.get("contact_name"), "subject": subject,
-            "content": content if content != subject else "", "order_id": _int(a.get("co_id"), 0) or None,
+            "customer": self.lk.customer(a.get("cu_sn")), "contact": a.get("contact_name"), "subject": title,
+            "content": text, "chars": len(text), "mentions": a.get("mentions") or [], "order_id": _int(a.get("co_id"), 0) or None,
         }
+
+    def enrich_actions(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """标出记录文字里提到的该客户其他联系人（按 CRM 联系人表匹配；未建档的人名识别不了）。"""
+        cids = {self.lk.customer_id(r.get("cu_sn")) for r in rows}
+        cids.discard(None)
+        if not cids:
+            return rows
+        contacts: Dict[int, List[Tuple[int, str]]] = {}
+        marks = ",".join("?" * len(cids))
+        for k in self.conn.execute(f"SELECT customer_id, id, name FROM contact WHERE customer_id IN ({marks})", list(cids)):
+            if k["name"] and len(k["name"].strip()) >= 2:
+                contacts.setdefault(k["customer_id"], []).append((k["id"], k["name"].strip()))
+        for r in rows:
+            cid = self.lk.customer_id(r.get("cu_sn"))
+            text = (r.get("content") or "") + "\n" + (r.get("subject") or "")
+            primary = _int(r.get("con_id"), 0)
+            found = []
+            for kid, kname in contacts.get(cid, []):
+                if kid != primary and kname in text and kname not in found:
+                    found.append(kname)
+            r["mentions"] = found
+        return rows
 
     def actions(self) -> Dict[str, Any]:
         clauses, args = ["a._deleted_at IS NULL"], []
@@ -635,14 +668,16 @@ class Query:
                    for r in self.rows(f"SELECT a.type, COUNT(*) n FROM action a{where} GROUP BY a.type ORDER BY n DESC", args)]
         by_day = [{"date": r["d"], "count": r["n"]} for r in self.rows(
             f"SELECT a.date d, COUNT(*) n FROM action a{where} AND a.date LIKE '____-__-__' AND a.date <= ? GROUP BY a.date ORDER BY d DESC LIMIT 62", [*args, self.today.isoformat()])][::-1]
-        who_counts: Dict[str, int] = {}
-        for r in self.rows(f"SELECT a.who, COUNT(*) n FROM action a{where} GROUP BY a.who", args):
+        who_counts: Dict[str, List[int]] = {}
+        for r in self.rows(f"SELECT a.who, COUNT(*) n, SUM(length(COALESCE(NULLIF(a.content, ''), a.subject, ''))) chars FROM action a{where} GROUP BY a.who", args):
             for code in [p for p in str(r["who"] or "").split(",") if p.strip()] or [str(r["who"] or "")]:
-                who_counts[code] = who_counts.get(code, 0) + r["n"]
-        by_who = [{"who": self.lk.user_name(k), "part": k, "count": v} for k, v in sorted(who_counts.items(), key=lambda kv: -kv[1])[:20]]
-        rows = self.rows(
+                acc = who_counts.setdefault(code, [0, 0])
+                acc[0] += r["n"]
+                acc[1] += r["chars"] or 0
+        by_who = [{"who": self.lk.user_name(k), "part": k, "count": v[0], "chars": v[1]} for k, v in sorted(who_counts.items(), key=lambda kv: -kv[1][0])[:20]]
+        rows = self.enrich_actions(self.rows(
             f"SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER){where} ORDER BY a.date DESC, a.id DESC LIMIT ? OFFSET ?",
-            [*args, size, offset])
+            [*args, size, offset]))
         return {"total": total, "page": page, "size": size, "by_type": by_type, "by_day": by_day, "by_who": by_who, "rows": [self.action_row(a) for a in rows]}
 
 

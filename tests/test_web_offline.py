@@ -19,6 +19,8 @@ from web.server import Lookups, Mirror, Query, make_server  # noqa: E402
 
 TODAY = __import__("datetime").date.today()
 THIS_YEAR = TODAY.year
+# 一条 CRM 长记录：subject 是 content 截断到 128 字的前缀，正文分段并提到另一位联系人
+LONG = "上门拜访：老客户-终端-研创\n   上门拜访纯化组长张三，询问项目进展，" + "填料参数上维持不变，" * 8 + "\n   拜访付玉清付总，简单聊了两句。"
 
 
 def seed(store: Store) -> None:
@@ -29,7 +31,7 @@ def seed(store: Store) -> None:
     ]
     customers = [
         {"id": "1", "sn": "1302", "cu_name": "广州研创生物技术发展有限公司", "m_name": "研创", "life": "3", "type": "3", "cu_status": "2", "owner": "M9", "city": "广州市", "creatdate": "2013-11-01", "moddate": "2026-01-01",
-         "contact": [{"id": "101", "name": "张三", "headship": "采购", "mphone": "13800000001"}]},
+         "contact": [{"id": "101", "name": "张三", "headship": "采购", "mphone": "13800000001"}, {"id": "102", "name": "付玉清", "headship": "", "mphone": ""}, {"id": "103", "name": "金舫", "headship": "", "mphone": ""}]},
         {"id": "2", "sn": "", "cu_name": "贵州医科大学-药学院-钱星凯", "m_name": "", "life": "2", "type": "2", "cu_status": "1", "owner": "M23", "city": "贵阳市", "creatdate": "2025-05-01", "moddate": "2026-09-01", "contact": []},
         {"id": "3", "sn": "", "cu_name": "无订单客户", "m_name": "", "life": "1", "type": "1", "cu_status": "1", "owner": "M9", "city": "", "creatdate": "2026-09-01", "moddate": "2026-09-01", "contact": []},
     ]
@@ -62,6 +64,7 @@ def seed(store: Store) -> None:
         {"id": "3", "cale": "3", "subject": "很久以前", "content": "", "type": "1", "cu_sn": "[id:1]", "con_id": "", "who": ",M9,M23,", "date": "2020-01-01", "endate": "2020-01-01"},
         {"id": "4", "cale": "3", "subject": "日期录错", "content": "", "type": "1", "cu_sn": "[id:1]", "con_id": "", "who": ",M9,", "date": "2224-06-12", "endate": "2224-06-12"},
         {"id": "5", "cale": "4", "subject": "没有日期的待办", "content": "", "type": "", "cu_sn": "[id:1]", "con_id": "", "who": ",M9,", "date": "", "endate": ""},
+        {"id": "6", "cale": "3", "subject": LONG[:128], "content": LONG, "type": "2", "cu_sn": "[id:1]", "con_id": "101", "who": ",M9,", "date": "2020-06-01", "endate": "2020-06-01"},
     ]
     for dt_name, rows in [("user", users), ("customer", customers), ("product", products), ("contract", contracts), ("gathering_note", notes), ("gathering", plans),
                           ("sendgoods", sends), ("libout", libouts), ("action", actions)]:
@@ -159,7 +162,7 @@ def test_order_detail_joins_children(q):
     assert [r["amount"] for r in d["receipts"]] == [1500.0]
     assert d["plans"][0]["status_text"] == "部分回款" and d["plans"][0]["overdue_days"] > 0
     assert d["shipments"][0]["items"] == 1 and d["libouts"][0]["who"] == "王勇尊"
-    assert d["actions"][0]["subject"] == "上门拜访"
+    assert d["actions"][0]["content"] == "上门拜访"
     assert {x["key"]: x for x in d["extras"]}["j1"]["name"] == "含税方式"
     assert all(x["key"] != "No." for x in d["extras"])
     assert q().order_detail(999) is None
@@ -169,13 +172,13 @@ def test_customers_list_aggregates_both_key_forms(q):
     res = q(sort="amount").customers()
     assert res["total"] == 3
     top = res["rows"][0]
-    assert top["id"] == 1 and top["orders"] == 2 and top["order_amount"] == 3000.0 and top["receipts"] == 2500.0 and top["contacts"] == 1
+    assert top["id"] == 1 and top["orders"] == 2 and top["order_amount"] == 3000.0 and top["receipts"] == 2500.0 and top["contacts"] == 3
     assert top["last_order"] == f"{THIS_YEAR}-03-01"
     assert q(q="医科").customers()["rows"][0]["id"] == 2
     assert q(owner="M23").customers()["total"] == 1
     assert q(life="1").customers()["rows"][0]["name"] == "无订单客户"
     d = q().customer_detail(1)
-    assert d["customer"]["owner"] == "王勇尊" and len(d["contacts"]) == 1
+    assert d["customer"]["owner"] == "王勇尊" and len(d["contacts"]) == 3
     assert sorted(o["id"] for o in d["orders"]) == [10, 11]
     assert [p["amount"] for p in d["open_plans"]] == [2000.0]
     assert [y["year"] for y in d["yearly"]] == [str(THIS_YEAR - 1), str(THIS_YEAR)]
@@ -207,12 +210,13 @@ def test_actions_who_codes_and_summaries(q):
     assert res["total"] == 3  # 含一条日期录成 2224 年的记录
     assert {r["id"]: r["who"] for r in res["rows"]} == {1: ["王勇尊"], 2: ["李勇刚(离职)"], 4: ["王勇尊"]}
     row = next(r for r in res["rows"] if r["id"] == 1)
-    assert row["contact"] == "张三" and row["content"] == "" and row["order_id"] == 11 and row["type_text"] == "市内拜访" and row["date_flag"] == ""
+    assert row["contact"] == "张三" and row["subject"] == "" and row["content"] == "上门拜访" and row["order_id"] == 11 and row["type_text"] == "市内拜访" and row["date_flag"] == ""
     assert next(r for r in res["rows"] if r["id"] == 4)["date_flag"] == "future"
     assert [d["date"] for d in res["by_day"]] == [TODAY.isoformat()]  # 未来日期不进按日统计
     assert q(who="M23").actions()["total"] == 2  # 单独与多人记录都命中
     everything = q().actions()
-    assert {w["part"]: w["count"] for w in everything["by_who"]} == {"M9": 4, "M23": 2}
+    assert {w["part"]: w["count"] for w in everything["by_who"]} == {"M9": 5, "M23": 2}
+    assert next(w for w in everything["by_who"] if w["part"] == "M9")["chars"] > len(LONG)
     assert next(r for r in everything["rows"] if r["id"] == 5)["date_flag"] == "invalid"
     assert q(q="沟通").actions()["rows"][0]["content"] == "电话沟通详情"
 
@@ -246,3 +250,19 @@ def test_connection_is_read_only(db):
     with pytest.raises(Exception):
         conn.execute("DELETE FROM contract")
     conn.close()
+
+
+def test_action_long_record_dedupes_subject_and_marks_mentions(q):
+    res = q(**{"from": "2020-06-01", "to": "2020-06-30"}).actions()
+    assert res["total"] == 1
+    row = res["rows"][0]
+    assert row["subject"] == "" and row["content"] == LONG and row["chars"] == len(LONG)  # subject 只是正文前缀，不重复显示
+    assert row["contact"] == "张三" and row["mentions"] == ["付玉清"]  # 主联系人之外、正文里提到的建档联系人
+    # 客户详情里的行动记录同样带“提及”
+    detail = q().customer_detail(1)
+    assert next(a for a in detail["actions"] if a["id"] == 6)["mentions"] == ["付玉清"]
+    # subject 是正文开头时只显示正文；subject 与正文各不相同时两者都保留
+    row2 = next(r for r in q(**{"from": TODAY.isoformat()}).actions()["rows"] if r["id"] == 2)
+    assert row2["subject"] == "" and row2["content"] == "电话沟通详情"
+    made = q().action_row({"id": 9, "subject": "回访", "content": "客户反馈良好", "who": ",M9,", "cu_sn": "[id:1]"})
+    assert made["subject"] == "回访" and made["content"] == "客户反馈良好"

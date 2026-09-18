@@ -180,6 +180,8 @@ function planTag(p) {
   if (p.overdue_days > 0) return `<span class="tag bad">逾期 ${p.overdue_days} 天</span>`;
   return `<span class="tag ${p.status === '4' ? 'warn' : 'open'}">${esc(p.status_text)}</span>`;
 }
+const actionText = (a) => `${a.subject ? `<div><b style="font-weight:500">${esc(a.subject)}</b></div>` : ''}${a.content ? `<pre class="content">${esc(a.content)}</pre>` : ''}`;
+const mentions = (a) => a.mentions && a.mentions.length ? `<div class="muted small">提及 ${esc(a.mentions.join('、'))}</div>` : '';
 const dateFlag = (f) => f === 'future' ? '<div><span class="tag bad" title="CRM 中录入的日期晚于今天（如把 2024 写成 2224），请在 CRM 里更正；镜像每周全量重拉后会更新">日期异常</span></div>' : f === 'invalid' ? '<div><span class="tag" title="CRM 中该记录没有日期">无日期</span></div>' : '';
 const custLink = (c) => c ? (c.id ? `<a data-cust="${c.id}">${esc(c.name)}</a>` : esc(c.name)) : '<span class="muted">—</span>';
 const orderLink = (id, no) => id ? `<a data-order="${id}">${esc(no || id)}</a>` : esc(no || '');
@@ -499,12 +501,12 @@ async function pageActions(view, params) {
     try {
       const res = await api('/api/actions', { ...q, size: 50 });
       const maxWho = Math.max(1, ...res.by_who.map((w) => w.count));
-      $('#byWho').innerHTML = `<h2>按人员 <span class="count">${fmtInt(res.total)} 条</span></h2><table><tbody>${res.by_who.map((w) => `<tr><td><a class="who-chip" data-part="${esc(w.part)}" title="只看此人">${esc(w.who)}</a></td><td style="width:60%">${inlineBar(w.count, maxWho, w.count)}</td></tr>`).join('') || '<tr><td class="empty">无</td></tr>'}</tbody></table>`;
+      $('#byWho').innerHTML = `<h2>按人员 <span class="count">${fmtInt(res.total)} 条 · 条数与字数</span></h2><table><tbody>${res.by_who.map((w) => `<tr><td><a class="who-chip" data-part="${esc(w.part)}" title="只看此人">${esc(w.who)}</a></td><td style="width:55%">${inlineBar(w.count, maxWho, w.count)}</td><td class="num muted small">${fmtInt(w.chars)} 字</td></tr>`).join('') || '<tr><td class="empty">无</td></tr>'}</tbody></table>`;
       const maxType = Math.max(1, ...res.by_type.map((t) => t.count));
       $('#byType').innerHTML = `<h2>按类型</h2><table><tbody>${res.by_type.map((t) => `<tr><td>${esc(t.text)}</td><td style="width:60%">${inlineBar(t.count, maxType, t.count)}</td></tr>`).join('') || '<tr><td class="empty">无</td></tr>'}</tbody></table>`;
       $('#byDay').innerHTML = `<h2>按日 <span class="count">${res.by_day.length ? esc(res.by_day[0].date) + ' 起' : ''}</span></h2>${miniBars(res.by_day.map((d) => d.count), '', res.by_day.map((d) => `${d.date}：${d.count} 条`))}<p class="hint">悬停查看每日条数</p>`;
       list.innerHTML = `<table><thead><tr><th>日期</th><th>人员</th><th>类型</th><th>客户</th><th>联系人</th><th>内容</th></tr></thead><tbody>
-        ${res.rows.map((a) => `<tr><td class="nowrap">${esc(a.date || '—')}${dateFlag(a.date_flag)}${a.end_date && a.end_date !== a.date ? `<div class="muted small">至 ${esc(a.end_date)}</div>` : ''}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="nowrap small">${esc(a.type_text || a.cale_text)}</td><td>${custLink(a.customer)}</td><td class="nowrap">${esc(a.contact || '')}</td><td>${esc(a.subject)}${a.content ? `<pre class="content">${esc(a.content)}</pre>` : ''}${a.order_id ? `<div class="small">关联订单 ${orderLink(a.order_id)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">没有符合条件的记录</td></tr>'}
+        ${res.rows.map((a) => `<tr><td class="nowrap">${esc(a.date || '—')}${dateFlag(a.date_flag)}${a.end_date && a.end_date !== a.date ? `<div class="muted small">至 ${esc(a.end_date)}</div>` : ''}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="nowrap small">${esc(a.type_text || a.cale_text)}</td><td>${custLink(a.customer)}</td><td class="nowrap">${esc(a.contact || '')}${mentions(a)}</td><td>${actionText(a)}${a.order_id ? `<div class="small">关联订单 ${orderLink(a.order_id)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">没有符合条件的记录</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       bindLinks(list);
@@ -570,7 +572,7 @@ async function openOrder(id) {
       ${d.shipments.length ? `<table><thead><tr><th>日期</th><th>单号</th><th>状态</th><th>物流</th><th>收货</th><th class="num">明细</th><th>经办</th></tr></thead><tbody>${d.shipments.map((s) => `<tr><td class="nowrap">${esc(s.date)}</td><td class="small">${esc(s.sn || '')}</td><td class="small">${esc(s.status_text)}</td><td class="small">${esc([s.sendcomp, s.sendcode].filter(Boolean).join(' '))}</td><td class="small">${esc(s.name || '')} ${esc(s.addr || '')}</td><td class="num">${s.items}</td><td>${esc(s.who || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       <h3>出库单 <span class="muted">${d.libouts.length} 张</span></h3>
       ${d.libouts.length ? `<table><thead><tr><th>日期</th><th>标题</th><th>仓库</th><th class="num">明细</th><th>经办</th><th>备注</th></tr></thead><tbody>${d.libouts.map((l) => `<tr><td class="nowrap">${esc(l.date)}</td><td class="small">${esc(l.title || '')}</td><td class="small">${esc(l.libname || '')}</td><td class="num">${l.items}</td><td>${esc(l.who)}</td><td class="small">${esc(l.memo || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
-      ${d.actions.length ? `<h3>相关行动记录 <span class="muted">${d.actions.length} 条</span></h3><table><tbody>${d.actions.map((a) => `<tr><td class="nowrap">${esc(a.date)}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="small">${esc(a.type_text)}</td><td>${esc(a.subject)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${d.actions.length ? `<h3>相关行动记录 <span class="muted">${d.actions.length} 条</span></h3><table><tbody>${d.actions.map((a) => `<tr><td class="nowrap">${esc(a.date)}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="small">${esc(a.type_text)}</td><td>${actionText(a)}${mentions(a)}</td></tr>`).join('')}</tbody></table>` : ''}
       ${d.extras.length ? `<h3>其他字段</h3><div class="kv">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
     stack[stack.length - 1].title = `订单 ${esc(o.no)}`;
     stack[stack.length - 1].html = html;
@@ -612,7 +614,7 @@ async function openCustomer(id) {
       <h3>回款记录 <span class="muted">最近 ${d.receipts.length} 笔</span></h3>
       ${d.receipts.length ? `<table><thead><tr><th>日期</th><th>订单号</th><th class="num">金额</th><th>付款方式</th><th>业务员</th><th>备注</th></tr></thead><tbody>${d.receipts.map((n) => `<tr><td class="nowrap">${esc(n.date)}</td><td>${orderLink(n.order_id, n.order_no)}</td><td class="num">${fmtMoney(n.amount)}</td><td class="small">${esc(n.type_text)}</td><td>${esc(n.who || '')}</td><td class="small">${esc(n.memo || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       <h3>行动记录 <span class="muted">最近 ${d.actions.length} 条</span></h3>
-      ${d.actions.length ? `<table><tbody>${d.actions.map((a) => `<tr><td class="nowrap">${esc(a.date)}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="small nowrap">${esc(a.type_text)}</td><td>${esc(a.subject)}${a.content ? `<pre class="content">${esc(a.content)}</pre>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
+      ${d.actions.length ? `<table><tbody>${d.actions.map((a) => `<tr><td class="nowrap">${esc(a.date)}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="small nowrap">${esc(a.type_text)}${a.contact ? `<div class="muted">${esc(a.contact)}</div>` : ''}</td><td>${actionText(a)}${mentions(a)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       ${d.extras.length ? `<h3>其他字段</h3><div class="kv">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
     stack[stack.length - 1].title = esc(c.name);
     stack[stack.length - 1].html = html;
