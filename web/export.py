@@ -93,7 +93,10 @@ PAY_PLAN_COLS: List[Col] = [
 CONTACT_COLS: List[Col] = [
     ("姓名", lambda r: r.get("name")), ("客户", _cust()), ("客户ID", lambda r: (r.get("customer") or {}).get("id")), ("所有者", lambda r: (r.get("customer") or {}).get("owner")),
     ("职务", lambda r: r.get("headship")), ("部门", lambda r: r.get("department")), ("手机", lambda r: r.get("mphone")), ("电话", lambda r: r.get("phone")), ("微信", lambda r: r.get("weixin")),
-    ("QQ", lambda r: r.get("qq")), ("邮箱", lambda r: r.get("email")), ("无联系方式", lambda r: "是" if r.get("missing") else ""), ("最近联系", lambda r: r.get("last_contact")), ("日志条数", lambda r: r.get("actions")),
+    ("QQ", lambda r: r.get("qq")), ("邮箱", lambda r: r.get("email")), ("无联系方式", lambda r: "是" if r.get("missing") else ""),
+    ("客户建档", lambda r: (r.get("customer") or {}).get("created")), ("客户订单额", lambda r: _num((r.get("customer") or {}).get("amount"))),
+    ("客户联系人数", lambda r: (r.get("customer") or {}).get("contacts")), ("现对接", lambda r: (r.get("customer") or {}).get("latest_contact_name")),
+    ("最近联系", lambda r: r.get("last_contact")), ("日志条数", lambda r: r.get("actions")),
     ("备注", lambda r: r.get("remark")),
 ]
 _CUST_BASE: List[Col] = [("客户", lambda r: r.get("name")), ("客户ID", lambda r: r.get("id")), ("所有者", lambda r: r.get("owner")), ("周期", lambda r: r.get("life_text")), ("城市", lambda r: r.get("city"))]
