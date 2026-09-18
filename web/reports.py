@@ -873,21 +873,57 @@ class ReportQueries:
         where = " WHERE " + " AND ".join(clauses)
         cte = ("WITH la AS (SELECT CAST(con_id AS INTEGER) cid, MAX(date) last_date, COUNT(*) n FROM action WHERE _deleted_at IS NULL AND con_id <> '' AND con_id <> '0' "
                "AND date LIKE '____-__-__' AND date <= ? GROUP BY cid)")
+        # 同客户视角：这家客户共几位联系人、最近还在联系的是谁（对接人换没换，一眼能看出来）
+        cte_more = (cte + ", cc AS (SELECT customer_id cid, COUNT(*) n FROM contact GROUP BY customer_id)"
+                    ", lc AS (SELECT cid, nm, d FROM (SELECT k2.customer_id cid, k2.name nm, k2.id kid, la2.last_date d, "
+                    "ROW_NUMBER() OVER (PARTITION BY k2.customer_id ORDER BY la2.last_date DESC, k2.id DESC) rn "
+                    "FROM contact k2 JOIN la la2 ON la2.cid = k2.id) WHERE rn = 1)")
         base = f"{cte} SELECT {{cols}} FROM contact k JOIN customer c ON c.id = k.customer_id LEFT JOIN la ON la.cid = k.id{where}"
+        base_more = (f"{cte_more} SELECT {{cols}} FROM contact k JOIN customer c ON c.id = k.customer_id LEFT JOIN la ON la.cid = k.id "
+                     f"LEFT JOIN cc ON cc.cid = k.customer_id LEFT JOIN lc ON lc.cid = k.customer_id{where}")
         page, size, offset = self.page()
         summary = self.one(base.format(cols=f"COUNT(*) n, SUM(CASE WHEN {self.MISSING_SQL} THEN 1 ELSE 0 END) missing, SUM(CASE WHEN la.cid IS NULL THEN 1 ELSE 0 END) never"), [self.today.isoformat(), *args]) or {}
         by_owner = [{"owner": self.lk.user_name(r["o"]), "part": r["o"], "count": r["n"], "missing": r["m"]} for r in self.rows(
             base.format(cols=f"c.owner o, COUNT(*) n, SUM(CASE WHEN {self.MISSING_SQL} THEN 1 ELSE 0 END) m") + " GROUP BY c.owner ORDER BY m DESC, n DESC LIMIT 15", [self.today.isoformat(), *args])]
         sort = {"last": "la.last_date DESC NULLS LAST, c.cu_name, k._seq", "name": "k.name COLLATE NOCASE, c.cu_name", "actions": "la.n DESC NULLS LAST, c.cu_name"}.get(self.get("sort"), "c.cu_name COLLATE NOCASE, k._seq")
-        rows = self.rows(base.format(cols="k.*, c.id customer_id2, c.cu_name, c.m_name, c.owner, la.last_date, la.n actions") + f" ORDER BY {sort} LIMIT ? OFFSET ?", [self.today.isoformat(), *args, size, offset])
+        rows = self.rows(base_more.format(
+            cols="k.*, c.id customer_id2, c.cu_name, c.m_name, c.owner, c.creatdate, c.life, la.last_date, la.n actions, "
+                 "cc.n cust_contacts, lc.nm cust_latest_name, lc.d cust_latest_date") + f" ORDER BY {sort} LIMIT ? OFFSET ?",
+            [self.today.isoformat(), *args, size, offset])
+        self.enrich_contact_stats(rows)
         return {"total": summary.get("n") or 0, "missing": summary.get("missing") or 0, "never_contacted": summary.get("never") or 0, "page": page, "size": size, "by_owner": by_owner,
                 "rows": [self.contact_row(k) for k in rows]}
+
+    def enrich_contact_stats(self, rows: List[Dict[str, Any]]) -> None:
+        """给当前页的客户补历史订单额与单数（判断这家客户有多重要）。"""
+        cids = {k.get("customer_id") for k in rows if k.get("customer_id")}
+        cids.discard(None)
+        if not cids:
+            return
+        ckeys = [x for cid in cids for x in self.customer_keys(cid)]
+        marks = ",".join("?" * len(ckeys))
+        amounts: Dict[int, Tuple[float, int]] = {}
+        for r in self.conn.execute(
+                f"SELECT {CID_EXPR.format(t='o')} cid, SUM({ORDER_RMB_EXPR}) a, COUNT(*) n FROM contract o "
+                f"WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.cu_sn IN ({marks}) GROUP BY cid", ckeys):
+            if r["cid"] is not None:
+                amounts[r["cid"]] = (r["a"] or 0.0, r["n"] or 0)
+        for k in rows:
+            amt = amounts.get(k.get("customer_id"))
+            if amt:
+                k["cust_amount"], k["cust_orders"] = money(amt[0]), amt[1]
 
     def contact_row(self, k: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": k["id"], "name": k.get("name"), "headship": k.get("headship"), "department": k.get("department"), "mphone": k.get("mphone"), "phone": k.get("phone"),
             "weixin": k.get("weixin"), "qq": k.get("qq"), "email": k.get("email"), "sex": k.get("sex"), "remark": k.get("remark"),
             "missing": not any(k.get(f) for f in ("mphone", "phone", "weixin", "qq", "email")),
-            "customer": {"id": k.get("customer_id"), "name": k.get("cu_name") or k.get("m_name") or "", "owner": self.lk.user_name(k.get("owner"))},
+            "customer": {
+                "id": k.get("customer_id"), "name": k.get("cu_name") or k.get("m_name") or "", "owner": self.lk.user_name(k.get("owner")),
+                "created": k.get("creatdate") or "", "life": self.lk.text("customer", "life", k.get("life")),
+                "contacts": k.get("cust_contacts") or 0, "amount": k.get("cust_amount") or 0.0, "orders": k.get("cust_orders") or 0,
+                # 这家客户里最近还有工作日志的是谁——不是本人就说明对接人可能换了
+                "latest_contact_name": k.get("cust_latest_name") or "", "latest_contact_date": k.get("cust_latest_date") or "",
+            },
             "last_contact": k.get("last_date"), "actions": k.get("actions") or 0,
         }
