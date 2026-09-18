@@ -82,10 +82,14 @@ h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600
 .who-cell .eye:hover { color: var(--accent); }
 .who-cell .eye svg { width: 13px; height: 13px; display: block; }
 .who-cell .eye .eye-off { display: none; }
-.who-cell.hid { order: 2; opacity: .5; padding-bottom: 4px; }
-.who-cell.hid .mid, .who-cell.hid .cnt, .who-cell.hid .ex { display: none; }
-.who-cell.hid .eye .eye-off { display: block; }
-.who-cell.hid .eye .eye-open { display: none; }
+/* 折叠掉的业务员单独一行，方便截屏时裁掉 */
+.who-hidden { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.fold-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); font-size: 12px; }
+.fold-chip a[data-who-plans] { color: var(--text-2); }
+.fold-chip .eye { color: var(--muted); display: inline-flex; cursor: pointer; }
+.fold-chip .eye:hover { color: var(--accent); }
+.fold-chip .eye svg { width: 12px; height: 12px; display: block; }
+.fold-chip .eye .eye-open { display: none; } .fold-chip .eye .eye-off { display: block; }
 .who-cell .mid { display: flex; align-items: flex-end; gap: 6px; }
 .who-cell .mid .col { flex: 1 1 auto; min-width: 0; }
 .sev { flex: 0 0 auto; display: grid; grid-template-columns: repeat(2, 14px); grid-auto-rows: 14px; gap: 2px; }
@@ -725,48 +729,44 @@ async function tabPlans(body, params) {
       $('#summary').innerHTML = `<h2>未回款账龄 <span class="count">按当前筛选</span></h2>
         <div class="aging-list">${buckets.map(([n, v, c, icon]) => `<div class="aging-row"><span class="ico">${icon}</span><span class="tag ${c}">${n}</span><b>${fmtMoney(v)}</b><span class="muted small">${agingTotal ? (v / agingTotal * 100).toFixed(0) + '%' : '—'}</span><i style="width:${agingTotal ? Math.max(v / agingTotal * 100, 0.5) : 0}%"></i></div>`).join('')}</div>
         <p class="hint" title="“部分回款”按计划金额全额计入；CRM 未提供已回部分的金额">合计 <b>${fmtMoney(agingTotal)}</b></p>`;
-      const cur = $('[name=who]').value, hidden = readHiddenWho();
-      $('#byWho').innerHTML = `<h2>按业务员（未回款） <span class="count">${res.by_who.length} 人</span> <span class="count" id="hiddenNote"></span> <button class="btn small" data-export="receivables_by_who" title="把这张汇总表导出 .xlsx">导出汇总</button></h2>
-        <div class="who-grid">${res.by_who.map((w) => `<div class="who-cell ${w.part && w.part === cur ? 'on' : ''} ${hidden.has(w.part) ? 'hid' : ''}">
+      const renderWho = () => {
+        const cur = $('[name=who]').value, hidden = readHiddenWho();
+        const shown = res.by_who.filter((w) => !hidden.has(w.part)), gone = res.by_who.filter((w) => hidden.has(w.part));
+        const cell = (w) => `<div class="who-cell ${w.part && w.part === cur ? 'on' : ''}">
           <div class="top"><a data-who-plans="${esc(w.part || '')}" title="${w.part === cur ? '取消筛选' : '只看此人的逾期货款'}">${esc(w.who)}</a>
-            <span class="muted small cnt">${fmtInt(w.count)} 期</span><a class="eye" data-eye="${esc(w.part || '')}" title="隐藏 / 显示这一格">${EYE_SVG}</a>${w.overdue_count ? `<a class="ex" data-who-export="${esc(w.part || '')}" title="导出此人的逾期清单">导出</a>` : ''}</div>
+            <span class="muted small cnt">${fmtInt(w.count)} 期</span><a class="eye" data-eye="${esc(w.part || '')}" title="折叠这一格">${EYE_SVG}</a>${w.overdue_count ? `<a class="ex" data-who-export="${esc(w.part || '')}" title="导出此人的逾期清单">导出</a>` : ''}</div>
           <div class="mid"><div class="col">
             <div class="amt">${fmtMoney(w.amount)}</div>
             <div class="late ${w.overdue_count ? 'down' : 'muted'}">${w.overdue_count ? `逾期 ${fmtInt(w.overdue_count)} 期 · ${fmtMoney(w.overdue)}` : '无逾期'}</div>
           </div>${sevGrid(w.aging)}</div>
-        </div>`).join('') || '<div class="empty">无</div>'}</div>
-        <p class="note">这块不受上面“业务员”筛选影响，可随时切人。点姓名只看此人的逾期货款（再点一次取消）；“导出”按当前日期与客户条件导出该业务员的逾期明细；小眼睛把这一格折叠起来（只记在本机浏览器，不影响统计与导出）。</p>`;
-      $('#byWho').querySelectorAll('a[data-who-plans]').forEach((a) => a.addEventListener('click', () => {
-        const on = $('[name=who]').value === a.dataset.whoPlans;
-        $('[name=who]').value = on ? '' : a.dataset.whoPlans;
-        if (!on) $('[name=status]').value = 'overdue';
-        load(1);
-      }));
-      $('#byWho').querySelectorAll('a[data-who-export]').forEach((a) => a.addEventListener('click', () => {
-        location.href = exportUrl('receivables', { ...readFilters($('#filters')), who: a.dataset.whoExport, status: 'overdue', tab: 'plans' });
-      }));
-      $('#byWho').querySelectorAll('button[data-export]').forEach((b) => b.addEventListener('click', () => {
-        location.href = exportUrl('receivables_by_who', readFilters($('#filters')));
-      }));
-      const syncHiddenNote = () => {
-        const n = $('#byWho').querySelectorAll('.who-cell.hid').length;
-        $('#hiddenNote').innerHTML = n ? `· 已隐藏 ${n} 人 <a data-show-all>全部显示</a>` : '';
+        </div>`;
+        $('#byWho').innerHTML = `<h2>按业务员（未回款） <span class="count">${shown.length}${gone.length ? ` / ${res.by_who.length}` : ''} 人</span> <button class="btn small" data-export="receivables_by_who" title="把这张汇总表导出 .xlsx">导出汇总</button></h2>
+          <div class="who-grid">${shown.map(cell).join('') || '<div class="empty">全部折叠了</div>'}</div>
+          ${gone.length ? `<div class="who-hidden"><span class="muted small">已折叠 ${gone.length} 人</span>${gone.map((w) => `<span class="fold-chip"><a data-who-plans="${esc(w.part || '')}" title="只看此人的逾期货款">${esc(w.who)}</a><a class="eye" data-eye="${esc(w.part || '')}" title="重新显示">${EYE_SVG}</a></span>`).join('')}<a class="small" data-show-all>全部显示</a></div>` : ''}
+          <p class="note">这块不受上面“业务员”筛选影响，可随时切人。点姓名只看此人的逾期货款（再点一次取消）；“导出”按当前日期与客户条件导出该业务员的逾期明细；小眼睛把这一格折叠到下面单独一行（只记在本机浏览器，不影响统计与导出）。</p>`;
+        $('#byWho').querySelectorAll('a[data-who-plans]').forEach((a) => a.addEventListener('click', () => {
+          const on = $('[name=who]').value === a.dataset.whoPlans;
+          $('[name=who]').value = on ? '' : a.dataset.whoPlans;
+          if (!on) $('[name=status]').value = 'overdue';
+          load(1);
+        }));
+        $('#byWho').querySelectorAll('a[data-who-export]').forEach((a) => a.addEventListener('click', () => {
+          location.href = exportUrl('receivables', { ...readFilters($('#filters')), who: a.dataset.whoExport, status: 'overdue', tab: 'plans' });
+        }));
+        $('#byWho').querySelectorAll('button[data-export]').forEach((b) => b.addEventListener('click', () => {
+          location.href = exportUrl('receivables_by_who', readFilters($('#filters')));
+        }));
+        $('#byWho').querySelectorAll('a[data-eye]').forEach((a) => a.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const set = readHiddenWho(), part = a.dataset.eye;
+          if (set.has(part)) set.delete(part); else set.add(part);
+          writeHiddenWho(set);
+          renderWho();
+        }));
         const all = $('#byWho').querySelector('a[data-show-all]');
-        if (all) all.addEventListener('click', () => {
-          writeHiddenWho(new Set());
-          $('#byWho').querySelectorAll('.who-cell.hid').forEach((c) => c.classList.remove('hid'));
-          syncHiddenNote();
-        });
+        if (all) all.addEventListener('click', () => { writeHiddenWho(new Set()); renderWho(); });
       };
-      $('#byWho').querySelectorAll('a[data-eye]').forEach((a) => a.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const set = readHiddenWho(), part = a.dataset.eye;
-        if (set.has(part)) set.delete(part); else set.add(part);
-        writeHiddenWho(set);
-        a.closest('.who-cell').classList.toggle('hid', set.has(part));
-        syncHiddenNote();
-      }));
-      syncHiddenNote();
+      renderWho();
       const arrow = (key) => res.sort === key ? `<span class="sort-arrow">${res.dir === 'asc' ? '▲' : '▼'}</span>` : '<span class="sort-arrow dim">↕</span>';
       const th = (key, label, cls) => `<th class="${cls ? cls + ' ' : ''}sortable" data-sort="${key}">${label}${arrow(key)}</th>`;
       $('#planSortUi').innerHTML = PLAN_SORT_OPTS.map(([k, label, d, a]) =>
@@ -1027,7 +1027,7 @@ const triIcon = (cls, title) => `<svg class="tri ${cls}" viewBox="0 0 24 24" ari
 
 // 业务员卡上的小眼睛：折叠 / 展开这一格，隐藏名单只记在本机浏览器，不影响统计与导出
 const EYE_SVG = `<svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.6 12S5.7 5 12 5s10.4 7 10.4 7-4.1 7-10.4 7S1.6 12 1.6 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>`
-  + `<svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.2 5.3A9.9 9.9 0 0 1 12 5c6.3 0 10.4 7 10.4 7a17.6 17.6 0 0 1-3.6 4.3M6.6 6.9A17.4 17.4 0 0 0 1.6 12S5.7 19 12 19c1.8 0 3.4-.6 4.7-1.4"/><path d="M9.6 9.8a2.8 2.8 0 0 0 3.9 3.9"/></svg>`;
+  + `<svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.4 8.6C5 12.6 8.3 15 12 15s7-2.4 9.6-6.4"/><path d="M4.3 13.7 2.4 16.6M9 15.7l-.8 3.1M15 15.7l.8 3.1M19.7 13.7l1.9 2.9"/></svg>`;
 const HIDDEN_WHO_KEY = 'xtools.hiddenWho';
 const readHiddenWho = () => { try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_WHO_KEY) || '[]')); } catch (e) { return new Set(); } };
 const writeHiddenWho = (set) => { try { localStorage.setItem(HIDDEN_WHO_KEY, JSON.stringify([...set])); } catch (e) { /* 隐私模式下忽略 */ } };
