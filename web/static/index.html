@@ -1397,14 +1397,15 @@ async function pageSalesperson(view, params) {
 
 // ------------------------------------------------------------------ 页面：联系人查询（0.5）
 async function pageContacts(view, params) {
-  const f = { q: '', owner: '', missing: '', sort: '', headship: '', page: 1, ...params };
+  const f = { q: '', owner: '', missing: '', sort: '', dir: '', headship: '', page: 1, ...params };
   view.innerHTML = `<h1>联系人查询 <span class="muted small">跨客户按姓名 / 手机 / 微信 / 邮箱搜索；“最近联系”取挂在此联系人上的工作日志</span></h1>
     <div class="filters" id="filters">
       <input type="text" name="q" placeholder="姓名 / 手机 / 微信 / 邮箱 / 客户名称" value="${esc(f.q)}">
       <input type="text" name="headship" placeholder="职务" value="${esc(f.headship)}" style="width:110px">
       <select name="owner">${userOptions(f.owner, '全部所有者')}</select>
       <label class="small"><input type="checkbox" name="missing" ${f.missing ? 'checked' : ''}> 只看无联系方式</label>
-      <select name="sort"><option value="">按客户</option><option value="last" ${f.sort === 'last' ? 'selected' : ''}>按最近联系</option><option value="actions" ${f.sort === 'actions' ? 'selected' : ''}>按日志条数</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>按姓名</option></select>
+      <select name="sort" class="only-narrow"><option value="customer">按客户</option><option value="created" ${f.sort === 'created' ? 'selected' : ''}>按建档日期</option><option value="last" ${f.sort === 'last' ? 'selected' : ''}>按最近联系</option><option value="actions" ${f.sort === 'actions' ? 'selected' : ''}>按日志条数</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>按姓名</option></select>
+      <select name="dir" class="only-narrow" title="排序方向"><option value="">默认方向</option><option value="desc" ${f.dir === 'desc' ? 'selected' : ''}>从大到小 / 从新到旧</option><option value="asc" ${f.dir === 'asc' ? 'selected' : ''}>从小到大 / 从旧到新</option></select>
       <button class="btn primary" id="go">查询</button><button class="btn" id="reset">清空</button>${exportButton('contacts')}
     </div>
     <div class="grid kpis dense" id="kpis"></div>
@@ -1424,8 +1425,10 @@ async function pageContacts(view, params) {
         <div class="who-mini">${res.by_owner.map((o) => `<div class="row"><a class="who-chip" data-part="${esc(o.part)}">${esc(o.owner || '（无）')}</a><b class="${o.missing ? 'down' : ''}">${fmtInt(o.missing)}</b><span class="muted">/ ${fmtInt(o.count)}</span></div>`).join('') || '<div class="empty">无</div>'}</div>
         <p class="note">工作日志正文里提到但未建档的人，见 scripts/report_missing_contacts.py 生成的专项报表。</p>`;
       $('#side').querySelectorAll('a.who-chip').forEach((a) => a.addEventListener('click', () => { $('[name=owner]').value = a.dataset.part; load(1); }));
+      const arrow = (key) => res.sort === key ? `<span class="sort-arrow">${res.dir === 'asc' ? '▲' : '▼'}</span>` : '<span class="sort-arrow dim">↕</span>';
+      const cth = (key, label, style) => `<th class="sortable"${style ? ` style="${style}"` : ''} data-sort="${key}">${label}${arrow(key)}</th>`;
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 人</p>
-        <table class="wide"><thead><tr><th style="width:104px">姓名</th><th style="width:92px">建档</th><th style="width:104px">订单额</th><th style="width:104px">职务 / 部门</th><th style="width:176px">联系方式</th><th>客户</th><th style="width:84px">所有者</th><th style="width:176px">最近联系</th></tr></thead><tbody>
+        <table class="wide"><thead><tr>${cth('name', '姓名', 'width:104px')}${cth('created', '建档', 'width:92px')}<th style="width:104px">订单额</th><th style="width:104px">职务 / 部门</th><th style="width:176px">联系方式</th>${cth('customer', '客户', '')}<th style="width:84px">所有者</th>${cth('last', '最近联系', 'width:176px')}</tr></thead><tbody>
         ${res.rows.map((k) => `<tr>
           <td class="lead">${esc(k.name)}${k.missing ? ' <span class="tag bad" title="没有任何联系方式">缺</span>' : ''}</td>
           <td class="nowrap small" title="客户建档日期">${esc((k.customer.created || '').slice(0, 10) || '—')}</td>
@@ -1437,10 +1440,17 @@ async function pageContacts(view, params) {
           <td class="small">${esc(k.last_contact || '—')}${k.actions ? ` <span class="muted">· ${fmtInt(k.actions)} 条</span>` : ''}${contactShift(k)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">没有符合条件的联系人</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
+      list.querySelectorAll('th.sortable').forEach((el) => el.addEventListener('click', () => {
+        const key = el.dataset.sort, cur = $('[name=sort]').value || 'customer', dir = $('[name=dir]').value;
+        $('[name=sort]').value = key;
+        $('[name=dir]').value = cur === key && dir !== 'asc' ? 'asc' : cur === key ? 'desc' : (key === 'name' || key === 'customer' ? 'asc' : 'desc');
+        load(1);
+      }));
       bindLinks(list);
     } catch (e) { list.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
     list.classList.remove('loading');
   };
+  view.querySelectorAll('[name=sort], [name=dir]').forEach((el) => el.addEventListener('change', () => load(1)));
   wireFilters(view, load);
   bindExport(view, () => readFilters($('#filters')));
   load(Number(f.page) || 1);

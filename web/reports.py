@@ -885,14 +885,28 @@ class ReportQueries:
         summary = self.one(base.format(cols=f"COUNT(*) n, SUM(CASE WHEN {self.MISSING_SQL} THEN 1 ELSE 0 END) missing, SUM(CASE WHEN la.cid IS NULL THEN 1 ELSE 0 END) never"), [self.today.isoformat(), *args]) or {}
         by_owner = [{"owner": self.lk.user_name(r["o"]), "part": r["o"], "count": r["n"], "missing": r["m"]} for r in self.rows(
             base.format(cols=f"c.owner o, COUNT(*) n, SUM(CASE WHEN {self.MISSING_SQL} THEN 1 ELSE 0 END) m") + " GROUP BY c.owner ORDER BY m DESC, n DESC LIMIT 15", [self.today.isoformat(), *args])]
-        sort = {"last": "la.last_date DESC NULLS LAST, c.cu_name, k._seq", "name": "k.name COLLATE NOCASE, c.cu_name", "actions": "la.n DESC NULLS LAST, c.cu_name"}.get(self.get("sort"), "c.cu_name COLLATE NOCASE, k._seq")
+        key, direction = self.contact_sort()
+        sort = f"{self.CONTACT_SORTS[key]} {direction} NULLS LAST, c.cu_name COLLATE NOCASE, k._seq"
         rows = self.rows(base_more.format(
             cols="k.*, c.id customer_id2, c.cu_name, c.m_name, c.owner, c.creatdate, c.life, la.last_date, la.n actions, "
                  "cc.n cust_contacts, lc.nm cust_latest_name, lc.d cust_latest_date") + f" ORDER BY {sort} LIMIT ? OFFSET ?",
             [self.today.isoformat(), *args, size, offset])
         self.enrich_contact_stats(rows)
-        return {"total": summary.get("n") or 0, "missing": summary.get("missing") or 0, "never_contacted": summary.get("never") or 0, "page": page, "size": size, "by_owner": by_owner,
-                "rows": [self.contact_row(k) for k in rows]}
+        return {"total": summary.get("n") or 0, "missing": summary.get("missing") or 0, "never_contacted": summary.get("never") or 0, "page": page, "size": size,
+                "sort": key, "dir": direction.lower(), "by_owner": by_owner, "rows": [self.contact_row(k) for k in rows]}
+
+    # 联系人列表排序：表头箭头传 sort + dir（订单额是取完这一页再算的，不参与排序）
+    CONTACT_SORTS = {"customer": "c.cu_name COLLATE NOCASE", "name": "k.name COLLATE NOCASE", "created": "c.creatdate",
+                     "last": "la.last_date", "actions": "la.n"}
+    CONTACT_ASC_FIRST = ("customer", "name")
+
+    def contact_sort(self) -> Tuple[str, str]:
+        key, direction = self.get("sort") or "customer", (self.get("dir") or "").lower()
+        if key not in self.CONTACT_SORTS:
+            key = "customer"
+        if direction not in ("asc", "desc"):
+            direction = "asc" if key in self.CONTACT_ASC_FIRST else "desc"
+        return key, "ASC" if direction == "asc" else "DESC"
 
     def enrich_contact_stats(self, rows: List[Dict[str, Any]]) -> None:
         """给当前页的客户补历史订单额与单数（判断这家客户有多重要）。"""
