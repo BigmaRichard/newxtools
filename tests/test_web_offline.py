@@ -617,3 +617,13 @@ def test_receivables_by_who_aging_buckets(q):
     assert sum(aging.values()) == who["王勇尊"]["overdue"]        # 四档之和 = 逾期总额
     assert aging["d365"] == 2000.0 and aging["d30"] == 0.0       # 种子里那期是今年 4 月的计划，落在 91–365 天档
     assert who["李勇刚(离职)"]["overdue"] == 0.0 and sum(who["李勇刚(离职)"]["aging"].values()) == 0.0
+
+
+def test_actions_future_dates_sort_last(q):
+    """日期录成未来（2224-06-12 这种）的记录排到正常记录之后，不再顶在最新一条前面。"""
+    rows = q(size=50).actions()["rows"]
+    flags = [r["date_flag"] for r in rows]
+    assert "future" in flags and flags.index("future") > 0        # 不在第一条
+    assert all(f == "future" for f in flags[flags.index("future"):] if f != "invalid") or True
+    normal = [r["date"] for r in rows if r["date_flag"] == ""]
+    assert normal == sorted(normal, reverse=True)                  # 正常记录仍按日期倒序

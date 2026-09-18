@@ -947,9 +947,11 @@ class Query(ReportQueries):
                 acc[0] += r["n"]
                 acc[1] += r["chars"] or 0
         by_who = [{"who": self.lk.user_name(k), "part": k, "count": v[0], "chars": v[1]} for k, v in sorted(who_counts.items(), key=lambda kv: -kv[1][0])[:20]]
+        # 日期录错成未来（如 2224-06-12）的记录排到正常记录之后，不再顶在最新一条前面
         rows = self.enrich_actions(self.rows(
-            f"SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER){where} ORDER BY a.date DESC, a.id DESC LIMIT ? OFFSET ?",
-            [*args, size, offset]))
+            f"SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER){where} "
+            "ORDER BY (CASE WHEN a.date > ? THEN 1 ELSE 0 END), a.date DESC, a.id DESC LIMIT ? OFFSET ?",
+            [*args, self.today.isoformat(), size, offset]))
         return {"total": total, "page": page, "size": size, "by_type": by_type, "by_day": by_day, "by_who": by_who, "rows": [self.action_row(a) for a in rows]}
 
 
