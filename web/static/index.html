@@ -56,6 +56,20 @@ h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600
 .card { min-width: 0; overflow-x: auto; }   /* 列数多的表格在自己卡片内横向滚动，不会溢出去盖住旁边 */
 .prod-name { max-width: 150px; min-width: 120px; white-space: normal; overflow-wrap: break-word; }  /* 约 SP-100-8-C4-NP 的 1.3 倍，再长折行 */
 .group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 18px; }
+/* 应收页顶部：左边窄账龄条，右边业务员小卡并排 */
+.row-aging { grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); align-items: start; }
+.aging-list { display: grid; gap: 9px; }
+.aging-row { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 8px; align-items: baseline; position: relative; padding-bottom: 7px; }
+.aging-row b { text-align: right; font-variant-numeric: tabular-nums; }
+.aging-row i { position: absolute; left: 0; bottom: 0; height: 3px; min-width: 2px; border-radius: 2px; background: var(--s1); opacity: .45; }
+.who-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 8px 10px; }
+.who-cell { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: var(--surface-2); }
+.who-cell.on { border-color: var(--accent); background: var(--accent-soft); }
+.who-cell .top { display: flex; align-items: baseline; gap: 8px; }
+.who-cell .top a { font-weight: 600; }
+.who-cell .top .ex { margin-left: auto; font-size: 12px; }
+.who-cell .amt { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.who-cell .late { font-size: 12px; margin-top: 1px; }
 .group-cell { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--surface-2); }
 .group-cell .inline-bar { margin-top: 4px; }
 .kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 14px; }
@@ -66,7 +80,7 @@ h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600
 .up { color: var(--good); } .down { color: var(--critical); }
 .row2 { grid-template-columns: 2fr 1fr; align-items: start; }
 .row3 { grid-template-columns: repeat(3, 1fr); }
-@media (max-width: 1100px) { .row2, .row3 { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .row2, .row3, .row-aging { grid-template-columns: 1fr; } }
 .only-narrow { display: none; }
 .btn.small { padding: 3px 9px; font-size: 12px; vertical-align: middle; margin-left: 8px; font-weight: 400; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
@@ -227,6 +241,10 @@ tr.total td { font-weight: 600; background: var(--surface-2); }
   .pager .btn { flex: 0 0 auto; }
   .summary, .note, .hint { font-size: 12px; }
   .only-narrow { display: inline-block; }
+  .who-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 7px; }
+  .who-cell { padding: 6px 8px; }
+  .who-cell .amt { font-size: 15px; }
+  .who-cell .top .ex { font-size: 11px; }
   /* 带表头的表格 → 卡片 */
   table[data-cards] thead { display: none; }
   table[data-cards], table[data-cards] tbody, table[data-cards] td { display: block; width: auto; }
@@ -663,7 +681,7 @@ async function tabPlans(body, params) {
       <input type="hidden" name="sort" value="${esc(f.sort)}"><input type="hidden" name="dir" value="${esc(f.dir)}">
       <button class="btn primary" id="go">查询</button><button class="btn" id="reset">清空</button>${exportButton('receivables')}
     </div>
-    <div class="grid row2"><div class="card" id="summary"></div><div class="card" id="byWho"></div></div>
+    <div class="grid row-aging"><div class="card" id="summary"></div><div class="card" id="byWho"></div></div>
     <div class="card" style="margin-top:14px"><div id="list"><div class="empty">加载中…</div></div></div>`;
   const load = async (page) => {
     const q = { ...readFilters($('#filters')), page, tab: 'plans' };
@@ -674,14 +692,18 @@ async function tabPlans(body, params) {
       const res = await api('/api/receivables', { ...q, size: 50 });
       const a = res.aging, agingTotal = a.not_due + a.d30 + a.d90 + a.d365 + a.d365p;
       const buckets = [['未到期', a.not_due, 'open'], ['逾期 ≤30 天', a.d30, 'warn'], ['31–90 天', a.d90, 'warn'], ['91–365 天', a.d365, 'bad'], ['超过 1 年', a.d365p, 'bad']];
-      $('#summary').innerHTML = `<h2>未回款账龄 <span class="count">按当前筛选</span></h2><table><tbody>${buckets.map(([n, v, c]) => `<tr><td><span class="tag ${c}">${n}</span></td><td class="num" style="width:55%">${inlineBar(v, agingTotal, fmtMoney(v))}</td><td class="num muted">${agingTotal ? (v / agingTotal * 100).toFixed(0) + '%' : '—'}</td></tr>`).join('')}</tbody></table>
-        <p class="hint">未回款合计 ${fmtMoney(agingTotal)}。“部分回款”按计划金额全额计入；CRM 未提供已回部分的金额。</p>`;
-      $('#byWho').innerHTML = `<h2>按业务员（未回款） <button class="btn small" data-export="receivables_by_who" title="把这张汇总表导出 .xlsx">导出汇总</button></h2>
-        <table><thead><tr><th>业务员</th><th class="num">期数</th><th class="num">未回金额</th><th class="num">逾期期数</th><th class="num">逾期金额</th><th></th></tr></thead><tbody>
-        ${res.by_who.map((w) => `<tr class="${w.part && w.part === $('[name=who]').value ? 'total' : ''}"><td><a data-who-plans="${esc(w.part || '')}" title="${w.part === $('[name=who]').value ? '取消筛选' : '只看此人的逾期货款'}">${esc(w.who)}</a></td><td class="num">${w.count}</td><td class="num">${fmtMoney(w.amount)}</td>
-          <td class="num ${w.overdue_count ? 'down' : 'muted'}">${fmtInt(w.overdue_count)}</td><td class="num ${w.overdue ? 'down' : 'muted'}">${fmtMoney(w.overdue)}</td>
-          <td class="nowrap small">${w.overdue_count ? `<a data-who-export="${esc(w.part || '')}" title="导出此人的逾期清单">导出逾期</a>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">无</td></tr>'}
-        </tbody></table><p class="note">这张表不受上面“业务员”筛选影响，可随时切人。点姓名只看此人的逾期货款（再点一次取消）；“导出逾期”按当前日期与客户条件导出该业务员的逾期明细。</p>`;
+      $('#summary').innerHTML = `<h2>未回款账龄 <span class="count">按当前筛选</span></h2>
+        <div class="aging-list">${buckets.map(([n, v, c]) => `<div class="aging-row"><span class="tag ${c}">${n}</span><b>${fmtMoney(v)}</b><span class="muted small">${agingTotal ? (v / agingTotal * 100).toFixed(0) + '%' : '—'}</span><i style="width:${agingTotal ? Math.max(v / agingTotal * 100, 0.5) : 0}%"></i></div>`).join('')}</div>
+        <p class="hint" title="“部分回款”按计划金额全额计入；CRM 未提供已回部分的金额">合计 <b>${fmtMoney(agingTotal)}</b></p>`;
+      const cur = $('[name=who]').value;
+      $('#byWho').innerHTML = `<h2>按业务员（未回款） <span class="count">${res.by_who.length} 人</span> <button class="btn small" data-export="receivables_by_who" title="把这张汇总表导出 .xlsx">导出汇总</button></h2>
+        <div class="who-grid">${res.by_who.map((w) => `<div class="who-cell ${w.part && w.part === cur ? 'on' : ''}">
+          <div class="top"><a data-who-plans="${esc(w.part || '')}" title="${w.part === cur ? '取消筛选' : '只看此人的逾期货款'}">${esc(w.who)}</a>
+            <span class="muted small">${fmtInt(w.count)} 期</span>${w.overdue_count ? `<a class="ex" data-who-export="${esc(w.part || '')}" title="导出此人的逾期清单">导出</a>` : ''}</div>
+          <div class="amt">${fmtMoney(w.amount)}</div>
+          <div class="late ${w.overdue_count ? 'down' : 'muted'}">${w.overdue_count ? `逾期 ${fmtInt(w.overdue_count)} 期 · ${fmtMoney(w.overdue)}` : '无逾期'}</div>
+        </div>`).join('') || '<div class="empty">无</div>'}</div>
+        <p class="note">这块不受上面“业务员”筛选影响，可随时切人。点姓名只看此人的逾期货款（再点一次取消）；“导出”按当前日期与客户条件导出该业务员的逾期明细。</p>`;
       $('#byWho').querySelectorAll('a[data-who-plans]').forEach((a) => a.addEventListener('click', () => {
         const on = $('[name=who]').value === a.dataset.whoPlans;
         $('[name=who]').value = on ? '' : a.dataset.whoPlans;
