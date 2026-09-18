@@ -483,3 +483,29 @@ def test_export_xlsx_over_http(db):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_products_group_by_model_and_sorting(q):
+    """型号视图：同一产品名下的批号合并成一行，库存与销量合计；列表可按各数值列排序。"""
+    by_model = q(view="model", months="0").products()
+    assert by_model["view"] == "model" and by_model["total"] == 3      # 三个型号，其中 πNAP 只有一个批号
+    rows = {r["model_name"]: r for r in by_model["rows"]}
+    p1 = rows["πNAP Packed Column 4.6mmI.D.x250mm"]
+    assert p1["batches"] == 1 and p1["stock"] == 5.0 and p1["sales_amount"] == 3000.0 and p1["stock_low"] is True
+    assert rows["滞销品"]["stock"] == 9.0 and rows["滞销品"]["sales_amount"] == 0.0
+    # 排序：库存升序 / 降序
+    asc = [r["model_name"] for r in q(view="model", months="0", sort="stock", dir="asc").products()["rows"]]
+    desc = [r["model_name"] for r in q(view="model", months="0", sort="stock", dir="desc").products()["rows"]]
+    assert asc == desc[::-1] and desc[0] == "滞销品"                    # 库存 9 > 5 > 0
+    assert [r["sn"] for r in q(months="0", sort="stock", dir="desc").products()["rows"]][:2] == ["SLOW-1", "08086-31"]
+    assert [r["sn"] for r in q(months="0", sort="customers", dir="desc").products()["rows"]][0] == "08086-31"
+    assert [r["sn"] for r in q(months="0", sort="sn", dir="asc").products()["rows"]][0] == ""      # 无编号排最前
+    # 型号视图下的库存筛选按合计判断
+    assert q(view="model", months="0", stock="in").products()["total"] == 2
+    assert q(view="model", months="0", stock="unsold").products()["rows"][0]["model_name"] == "滞销品"
+    # 型号详情：批号清单 + 合计
+    d = q(model="πNAP Packed Column 4.6mmI.D.x250mm", months="0").product_detail()
+    assert d["view"] == "model" and d["product"]["batches"] == 1 and d["product"]["stock"] == 5.0
+    assert [b["sn"] for b in d["batches"]] == ["08086-31"] and d["batches"][0]["sales_orders"] == 2
+    assert d["yearly"][0]["amount"] == 1000.0 and d["top_customers"][0]["customer"]["id"] == 1
+    assert q(model="不存在的型号").product_detail() is None

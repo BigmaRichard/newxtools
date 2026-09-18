@@ -466,22 +466,41 @@ class ReportQueries:
         start = months_back(self.today, months - 1) + "-01"
         return start, f"近 {months} 个月"
 
+    # 销售汇总 CTE：按产品 id（批号视图）或按产品名（型号视图）
     PRODUCT_SALES_CTE = (f"WITH s AS (SELECT {PRODUCT_KEY.format(g='g')} pid, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, MAX(o.date) last_date, COUNT(DISTINCT o.cu_sn) cust "
                          f"FROM contract_goods g JOIN contract o ON o.id = g.contract_id WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.date >= ? GROUP BY pid)")
+    MODEL_SALES_CTE = (f"WITH s AS (SELECT p0.name pname, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, MAX(o.date) last_date, COUNT(DISTINCT o.cu_sn) cust "
+                       f"FROM contract_goods g JOIN contract o ON o.id = g.contract_id JOIN product p0 ON p0.id = {PRODUCT_KEY.format(g='g')} "
+                       f"WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.date >= ? GROUP BY p0.name)")
+    # 列表排序：前端表头箭头传 sort + dir
+    SORT_COLS = {"amount": "sold_amount", "qty": "sold_qty", "orders": "sold_orders", "customers": "sold_cust", "stock": "stock",
+                 "last": "last_sale", "price": "price_v", "name": "name COLLATE NOCASE", "sn": "sn", "batches": "batches"}
+    TEXT_SORTS = ("name", "sn")
 
     def product_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
-        stock, ldown, lup = _num(r.get("lnum")), _num(r.get("ldown")), _num(r.get("lup"))
+        """批号视图的一行（一条 CRM 产品记录 = 一个批号 / 包装规格）。"""
+        stock, ldown, lup = _num(r.get("stock")), _num(r.get("ldown")), _num(r.get("lup"))
         return {
             "id": r.get("id"), "sn": r.get("sn"), "name": r.get("name"), "model": r.get("model"), "sku": r.get("sku"), "unit": r.get("unit"),
             "class": r.get("class") or "", "group": self.lk.class_group(r.get("class") or ""), "price": money(r.get("price")), "cost": money(r.get("costprice")),
             "status": r.get("status"), "manufacturer": r.get("manufacturer"), "mflag": r.get("mflag"),
-            "stock": round(stock, 3), "stock_low": ldown > 0 and stock < ldown, "ldown": round(ldown, 3), "lup": round(lup, 3), "ptype": r.get("ptype"),
-            "sales_amount": money(r.get("a")), "sales_qty": round(_num(r.get("q")), 3), "sales_orders": r.get("n") or 0, "sales_customers": r.get("cust") or 0, "last_sale": r.get("last_date"),
-            "memo": r.get("memo"),
+            "stock": round(stock, 3), "stock_low": bool(r.get("low_flag")), "ldown": round(ldown, 3), "lup": round(lup, 3), "ptype": r.get("ptype"),
+            "sales_amount": money(r.get("sold_amount")), "sales_qty": round(_num(r.get("sold_qty")), 3), "sales_orders": r.get("sold_orders") or 0,
+            "sales_customers": r.get("sold_cust") or 0, "last_sale": r.get("last_sale"), "memo": r.get("memo"),
         }
 
-    def products(self) -> Dict[str, Any]:
-        start, window = self._product_window()
+    def model_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
+        """型号视图的一行（同一产品名下的全部批号合计）。"""
+        return {
+            "model_name": r.get("name"), "any_id": r.get("id"), "batches": r.get("batches") or 0, "batches_in_stock": r.get("batches_in_stock") or 0,
+            "low_batches": r.get("low_batches") or 0, "stock": round(_num(r.get("stock")), 3), "stock_low": bool(r.get("low_flag")),
+            "class": r.get("class") or "", "group": self.lk.class_group(r.get("class") or ""), "unit": r.get("unit"), "price": money(r.get("price_v")),
+            "units": r.get("units"), "sales_amount": money(r.get("sold_amount")), "sales_qty": round(_num(r.get("sold_qty")), 3),
+            "sales_orders": r.get("sold_orders") or 0, "sales_customers": r.get("sold_cust") or 0, "last_sale": r.get("last_sale"),
+        }
+
+    def _product_where(self) -> Tuple[List[str], List[Any]]:
+        """产品列表的公共筛选（不含库存条件，库存条件在两种视图里位置不同）。"""
         clauses, args = ["p._deleted_at IS NULL"], []
         q = self.get("q")
         if q:
@@ -497,26 +516,65 @@ class ReportQueries:
         if self.get("status"):
             clauses.append("p.status = ?")
             args.append(self.get("status"))
+        if self.get("model"):
+            clauses.append("p.name = ?")
+            args.append(self.get("model"))
+        return clauses, args
+
+    def _order_by(self, by_model: bool) -> str:
+        key = self.get("sort")
+        col = self.SORT_COLS.get(key)
+        if col is None or (by_model and key == "sn") or (not by_model and key == "batches"):
+            col, key = "sold_amount", "amount"
+        direction = self.get("dir") or ("asc" if key in self.TEXT_SORTS else "desc")
+        direction = "ASC" if direction == "asc" else "DESC"
+        tail = "name COLLATE NOCASE" if by_model else "name COLLATE NOCASE, sn"
+        return f"{col} {direction} NULLS LAST, {tail}"
+
+    STOCK_WHERE = {  # 批号视图：条件作用在单条产品记录上
+        "in": "CAST(p.lnum AS REAL) > 0",
+        "out": "COALESCE(CAST(p.lnum AS REAL), 0) <= 0",
+        "low": "CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL)",
+        "unsold": "CAST(p.lnum AS REAL) > 0 AND s.pid IS NULL",
+        "sold": "s.pid IS NOT NULL",
+    }
+    STOCK_HAVING = {  # 型号视图：条件作用在该型号的合计上
+        "in": "SUM(CAST(p.lnum AS REAL)) > 0",
+        "out": "COALESCE(SUM(CAST(p.lnum AS REAL)), 0) <= 0",
+        "low": "SUM(CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END) > 0",
+        "unsold": "SUM(CAST(p.lnum AS REAL)) > 0 AND MAX(s.n) IS NULL",
+        "sold": "MAX(s.n) IS NOT NULL",
+    }
+
+    def products(self) -> Dict[str, Any]:
+        start, window = self._product_window()
+        by_model = self.get("view") == "model"
+        clauses, args = self._product_where()
         stock = self.get("stock")
-        if stock == "in":
-            clauses.append("CAST(p.lnum AS REAL) > 0")
-        elif stock == "out":
-            clauses.append("COALESCE(CAST(p.lnum AS REAL), 0) <= 0")
-        elif stock == "low":
-            clauses.append("CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL)")
-        elif stock == "unsold":
-            clauses.append("CAST(p.lnum AS REAL) > 0 AND s.pid IS NULL")
-        elif stock == "sold":
-            clauses.append("s.pid IS NOT NULL")
-        where = " WHERE " + " AND ".join(clauses)
-        base = f"{self.PRODUCT_SALES_CTE} SELECT {{cols}} FROM product p LEFT JOIN s ON s.pid = p.id{where}"
-        summary = self.one(base.format(cols=(
-            "COUNT(*) n, SUM(CASE WHEN CAST(p.lnum AS REAL) > 0 THEN 1 ELSE 0 END) with_stock, "
-            "SUM(CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END) low, "
-            "SUM(CASE WHEN CAST(p.lnum AS REAL) > 0 AND s.pid IS NULL THEN 1 ELSE 0 END) unsold, SUM(CASE WHEN s.pid IS NOT NULL THEN 1 ELSE 0 END) sold, "
-            "SUM(s.a) amount, SUM(s.q) qty")), [start, *args]) or {}
+        if by_model:
+            having = f" HAVING {self.STOCK_HAVING[stock]}" if stock in self.STOCK_HAVING else ""
+            inner = (f"{self.MODEL_SALES_CTE} SELECT p.name, MAX(p.id) id, COUNT(*) batches, "
+                     "SUM(CASE WHEN CAST(p.lnum AS REAL) > 0 THEN 1 ELSE 0 END) batches_in_stock, "
+                     "SUM(CAST(p.lnum AS REAL)) stock, "
+                     "SUM(CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END) low_batches, "
+                     "MIN(CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END) low_flag, "
+                     "MAX(CAST(p.price AS REAL)) price_v, MAX(p.class) class, MIN(p.unit) unit, COUNT(DISTINCT p.unit) units, "
+                     "MAX(s.n) sold_orders, MAX(s.a) sold_amount, MAX(s.q) sold_qty, MAX(s.last_date) last_sale, MAX(s.cust) sold_cust "
+                     "FROM product p LEFT JOIN s ON s.pname = p.name WHERE " + " AND ".join(clauses) + " GROUP BY p.name" + having)
+        else:
+            if stock in self.STOCK_WHERE:
+                clauses.append(self.STOCK_WHERE[stock])
+            inner = (f"{self.PRODUCT_SALES_CTE} SELECT p.*, CAST(p.lnum AS REAL) stock, "
+                     "CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END low_flag, "
+                     "s.n sold_orders, s.a sold_amount, s.q sold_qty, s.last_date last_sale, s.cust sold_cust "
+                     "FROM product p LEFT JOIN s ON s.pid = p.id WHERE " + " AND ".join(clauses))
+        params = [start, *args]
+        summary = self.one(
+            "SELECT COUNT(*) total, SUM(CASE WHEN stock > 0 THEN 1 ELSE 0 END) with_stock, SUM(low_flag) low, "
+            "SUM(CASE WHEN stock > 0 AND sold_orders IS NULL THEN 1 ELSE 0 END) unsold, SUM(CASE WHEN sold_orders IS NOT NULL THEN 1 ELSE 0 END) sold, "
+            f"SUM(sold_amount) amount, SUM(sold_qty) qty FROM ({inner})", params) or {}
         by_class: Dict[str, Dict[str, Any]] = {}
-        for r in self.rows(base.format(cols="COALESCE(p.class, '') k, COUNT(*) n, SUM(CASE WHEN CAST(p.lnum AS REAL) > 0 THEN 1 ELSE 0 END) ws, SUM(s.a) a, SUM(s.q) q, SUM(s.n) o") + " GROUP BY k", [start, *args]):
+        for r in self.rows(f"SELECT COALESCE(class, '') k, COUNT(*) n, SUM(CASE WHEN stock > 0 THEN 1 ELSE 0 END) ws, SUM(sold_amount) a, SUM(sold_qty) q FROM ({inner}) GROUP BY k", params):
             g = self.lk.class_group(r["k"])
             acc = by_class.setdefault(g, {"group": g, "products": 0, "with_stock": 0, "amount": 0.0, "qty": 0.0, "classes": 0})
             acc["products"] += r["n"] or 0
@@ -525,48 +583,83 @@ class ReportQueries:
             acc["qty"] = round(acc["qty"] + (r["q"] or 0), 3)
             acc["classes"] += 1
         page, size, offset = self.page()
-        sort = {
-            "qty": "s.q DESC NULLS LAST, p.sn", "orders": "s.n DESC NULLS LAST, p.sn", "stock": "CAST(p.lnum AS REAL) DESC, p.sn", "name": "p.name COLLATE NOCASE, p.sn",
-            "last": "s.last_date DESC NULLS LAST, p.sn", "price": "CAST(p.price AS REAL) DESC, p.sn", "sn": "p.sn, p.id",
-        }.get(self.get("sort"), "s.a DESC NULLS LAST, CAST(p.lnum AS REAL) DESC, p.sn")
-        rows = self.rows(base.format(cols="p.*, s.n, s.a, s.q, s.last_date, s.cust") + f" ORDER BY {sort} LIMIT ? OFFSET ?", [start, *args, size, offset])
-        return {"total": summary.get("n") or 0, "page": page, "size": size, "window": window, "window_start": start,
-                "summary": {"with_stock": summary.get("with_stock") or 0, "low": summary.get("low") or 0, "unsold": summary.get("unsold") or 0, "sold": summary.get("sold") or 0,
-                            "amount": money(summary.get("amount")), "qty": round(_num(summary.get("qty")), 3)},
-                "by_group": sorted(by_class.values(), key=lambda a: -a["amount"]), "rows": [self.product_row(r) for r in rows]}
+        rows = self.rows(f"SELECT * FROM ({inner}) ORDER BY {self._order_by(by_model)} LIMIT ? OFFSET ?", [*params, size, offset])
+        return {"total": summary.get("total") or 0, "page": page, "size": size, "window": window, "window_start": start,
+                "view": "model" if by_model else "batch", "sort": self.get("sort") or "amount", "dir": self.get("dir") or "desc",
+                "summary": {"with_stock": summary.get("with_stock") or 0, "low": summary.get("low") or 0, "unsold": summary.get("unsold") or 0,
+                            "sold": summary.get("sold") or 0, "amount": money(summary.get("amount")), "qty": round(_num(summary.get("qty")), 3)},
+                "by_group": sorted(by_class.values(), key=lambda a: -a["amount"]),
+                "rows": [self.model_row(r) if by_model else self.product_row(r) for r in rows]}
+
+    def _product_match(self, model: str, prod: Optional[Dict[str, Any]]) -> Tuple[str, List[Any]]:
+        """订单 / 采购明细里引用这个产品（或这个型号的全部批号）的条件：编号 sn，或没有编号时的 "[id:N]"。"""
+        if model:
+            return ("g.prod IN (SELECT sn FROM product WHERE name = ? AND sn <> '' UNION ALL SELECT '[id:' || id || ']' FROM product WHERE name = ?)", [model, model])
+        return ("g.prod IN (?, ?)", [prod.get("sn") or "\0", f"[id:{prod['id']}]"])
 
     def product_detail(self) -> Optional[Dict[str, Any]]:
-        """按 id（优先）或编号 sn 查看产品；产品没有编号时明细里以 "[id:N]" 引用。"""
-        prod = self.lk.product(f"[id:{self.get('id')}]" if self.get("id") else self.get("sn"))
-        if not prod:
-            return None
-        pid, keys = prod["id"], [prod.get("sn") or "", f"[id:{prod['id']}]"]
+        """按 id / 编号看一个批号，或按 model 看一个型号（该名称下全部批号合计，另附批号清单）。"""
+        model = self.get("model")
+        prod = None
+        if not model:
+            prod = self.lk.product(f"[id:{self.get('id')}]" if self.get("id") else self.get("sn"))
+            if not prod:
+                return None
         start, window = self._product_window()
-        r = self.one(f"{self.PRODUCT_SALES_CTE} SELECT p.*, s.n, s.a, s.q, s.last_date, s.cust FROM product p LEFT JOIN s ON s.pid = p.id WHERE p.id = ?", [start, pid])
-        if not r:
-            return None
-        base = f"FROM contract_goods g JOIN contract o ON o.id = g.contract_id WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND g.prod IN (?, ?)"
+        if model:
+            r = self.one(f"{self.MODEL_SALES_CTE} SELECT p.name, MAX(p.id) id, COUNT(*) batches, "
+                         "SUM(CASE WHEN CAST(p.lnum AS REAL) > 0 THEN 1 ELSE 0 END) batches_in_stock, SUM(CAST(p.lnum AS REAL)) stock, "
+                         "SUM(CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END) low_batches, "
+                         "MAX(CAST(p.price AS REAL)) price_v, MAX(p.class) class, MIN(p.unit) unit, COUNT(DISTINCT p.unit) units, "
+                         "MAX(s.n) sold_orders, MAX(s.a) sold_amount, MAX(s.q) sold_qty, MAX(s.last_date) last_sale, MAX(s.cust) sold_cust "
+                         "FROM product p LEFT JOIN s ON s.pname = p.name WHERE p._deleted_at IS NULL AND p.name = ? GROUP BY p.name", [start, model])
+            if not r:
+                return None
+            product = self.model_row(r)
+        else:
+            r = self.one(f"{self.PRODUCT_SALES_CTE} SELECT p.*, CAST(p.lnum AS REAL) stock, "
+                         "CASE WHEN CAST(p.ldown AS REAL) > 0 AND CAST(p.lnum AS REAL) < CAST(p.ldown AS REAL) THEN 1 ELSE 0 END low_flag, "
+                         "s.n sold_orders, s.a sold_amount, s.q sold_qty, s.last_date last_sale, s.cust sold_cust "
+                         "FROM product p LEFT JOIN s ON s.pid = p.id WHERE p.id = ?", [start, prod["id"]])
+            if not r:
+                return None
+            product = self.product_row(r)
+        match, margs = self._product_match(model, prod)
+        base = f"FROM contract_goods g JOIN contract o ON o.id = g.contract_id WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND {match}"
         yearly = [{"year": x["y"], "count": x["n"], "amount": money(x["a"]), "qty": round(_num(x["q"]), 3)} for x in self.rows(
-            f"SELECT substr(o.date, 1, 4) y, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q {base} AND o.date LIKE '____-__-__' GROUP BY y ORDER BY y", keys)]
+            f"SELECT substr(o.date, 1, 4) y, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q {base} AND o.date LIKE '____-__-__' GROUP BY y ORDER BY y", margs)]
         m_start = months_back(self.today, 23) + "-01"
-        got = {x["m"]: x for x in self.rows(f"SELECT substr(o.date, 1, 7) m, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q {base} AND o.date >= ? GROUP BY m", [*keys, m_start])}
+        got = {x["m"]: x for x in self.rows(f"SELECT substr(o.date, 1, 7) m, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q {base} AND o.date >= ? GROUP BY m", [*margs, m_start])}
         monthly = [{"month": m, "count": (got.get(m) or {}).get("n") or 0, "amount": money((got.get(m) or {}).get("a")), "qty": round(_num((got.get(m) or {}).get("q")), 3)} for m in month_range(self.today.strftime("%Y-%m"), 24)]
         top_customers = [{"customer": self.lk.customer(x["cu_sn"]), "count": x["n"], "amount": money(x["a"]), "qty": round(_num(x["q"]), 3), "last_date": x["d"]} for x in self.rows(
-            f"SELECT o.cu_sn, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, MAX(o.date) d {base} GROUP BY o.cu_sn ORDER BY a DESC LIMIT 15", keys)]
+            f"SELECT o.cu_sn, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, MAX(o.date) d {base} GROUP BY o.cu_sn ORDER BY a DESC LIMIT 15", margs)]
         lines = [{"order_id": x["id"], "order_no": x["no_"], "date": x["date"], "customer": self.lk.customer(x["cu_sn"]), "who": x["who"], "qty": round(_num(x["amount"]), 3), "unit_price": money(x["un_price"]),
-                  "sum": money(x["gsum"]), "status_text": self.lk.text("contract", "status", x["status"]), "batchnum": x["batchnum"], "memo": x["memo"]} for x in self.rows(
-            "SELECT o.id, o.no_, o.date, o.cu_sn, o.who, o.status, g.amount, g.un_price, g.sum gsum, g.batchnum, g.memo FROM contract_goods g JOIN contract o ON o.id = g.contract_id "
-            "WHERE o._deleted_at IS NULL AND g.prod IN (?, ?) ORDER BY o.date DESC, o.id DESC LIMIT 40", keys)]
+                  "sum": money(x["gsum"]), "status_text": self.lk.text("contract", "status", x["status"]), "batchnum": x["batchnum"], "prod": x["prod"], "memo": x["memo"]} for x in self.rows(
+            "SELECT o.id, o.no_, o.date, o.cu_sn, o.who, o.status, g.prod, g.amount, g.un_price, g.sum gsum, g.batchnum, g.memo FROM contract_goods g JOIN contract o ON o.id = g.contract_id "
+            f"WHERE o._deleted_at IS NULL AND {match} ORDER BY o.date DESC, o.id DESC LIMIT 40", margs)]
+        pmatch = match.replace("g.prod", "i.prod")
         purchases = [{"purchase_id": x["id"], "no": x["no_"], "date": x["date"], "title": x["title"], "supplier": self.lk.supplier(x["cu_id"]), "qty": round(_num(x["num"]), 3), "price": money(x["price"]),
                       "money": money(x["pmoney"]), "money_type": x["money_type"] or "RMB", "who": x["who"]} for x in self.rows(
             "SELECT u.id, u.no_, u.date, u.title, u.cu_id, u.money_type, u.who, i.num, i.price, i.money pmoney FROM purchase_items i JOIN purchase u ON u.id = i.purchase_id "
-            "WHERE u._deleted_at IS NULL AND i.prod IN (?, ?) ORDER BY u.date DESC, u.id DESC LIMIT 20", keys)]
+            f"WHERE u._deleted_at IS NULL AND {pmatch} ORDER BY u.date DESC, u.id DESC LIMIT 20", margs)]
+        # 出库明细里产品用 pid 引用，少数旧单据只填了 prod（编号），两者都匹配
+        lib_where = (("CAST(i.pid AS INTEGER) IN (SELECT id FROM product WHERE name = ?) OR i.prod IN (SELECT sn FROM product WHERE name = ? AND sn <> '')", [model, model])
+                     if model else ("CAST(i.pid AS INTEGER) = ? OR i.prod IN (?, ?)", [prod["id"], prod.get("sn") or "\0", str(prod["id"])]))
         libouts = [{"libout_id": x["id"], "date": x["date"], "title": x["title"], "libname": x["libname"], "customer": self.lk.customer(x["cu_sn"], numeric_is_id=True), "order_no": x["co_sn"],
                     "qty": round(_num(x["num"]), 3), "batchnum": x["batchnum"], "who": self.lk.user_name(x["who"])} for x in self.rows(
             "SELECT l.id, l.date, l.title, l.libname, l.cu_sn, l.co_sn, l.who, i.num, i.batchnum FROM libout_items i JOIN libout l ON l.id = i.libout_id "
-            "WHERE l._deleted_at IS NULL AND (CAST(i.pid AS INTEGER) = ? OR i.prod IN (?, ?)) ORDER BY l.date DESC, l.id DESC LIMIT 20", [pid, keys[0] or str(pid), str(pid)])]
-        extras = self.raw_extras("product", r["id"], set(r.keys()))
-        return {"product": self.product_row(r), "window": window, "yearly": yearly, "monthly": monthly, "top_customers": top_customers, "lines": lines, "purchases": purchases, "libouts": libouts, "extras": extras}
+            f"WHERE l._deleted_at IS NULL AND ({lib_where[0]}) ORDER BY l.date DESC, l.id DESC LIMIT 20", lib_where[1])]
+        batches = []
+        if model:  # 型号下的各批号：编号里通常是“生产批号-包装规格”
+            batches = [{"id": x["id"], "sn": x["sn"] or "", "stock": round(_num(x["stock"]), 3), "ldown": round(_num(x["ldown"]), 3),
+                        "stock_low": _num(x["ldown"]) > 0 and _num(x["stock"]) < _num(x["ldown"]), "unit": x["unit"], "status": x["status"], "model": x["model"],
+                        "sales_amount": money(x["a"]), "sales_qty": round(_num(x["q"]), 3), "sales_orders": x["n"] or 0, "last_sale": x["last_date"]}
+                       for x in self.rows(f"{self.PRODUCT_SALES_CTE} SELECT p.id, p.sn, p.unit, p.status, p.model, CAST(p.lnum AS REAL) stock, p.ldown, s.n, s.a, s.q, s.last_date "
+                                          "FROM product p LEFT JOIN s ON s.pid = p.id WHERE p._deleted_at IS NULL AND p.name = ? "
+                                          "ORDER BY CAST(p.lnum AS REAL) DESC, s.last_date DESC NULLS LAST, p.sn", [start, model])]
+        extras = [] if model else self.raw_extras("product", prod["id"], set(r.keys()))
+        return {"product": product, "view": "model" if model else "batch", "window": window, "yearly": yearly, "monthly": monthly,
+                "top_customers": top_customers, "lines": lines, "purchases": purchases, "libouts": libouts, "batches": batches, "extras": extras}
 
     # ------------------------------------------------------------------ 采购与付款
     def purchase_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
