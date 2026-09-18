@@ -1,3 +1,4 @@
 requests>=2.25
 # 开发 / 测试
 pytest>=7
+jieba>=0.42       # 可选：scripts/report_missing_contacts.py 用其词典过滤常见词、补充人名识别
