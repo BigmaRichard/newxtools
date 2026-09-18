@@ -59,10 +59,14 @@ h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600
 /* 应收页顶部：左边窄账龄条，右边业务员小卡并排 */
 .row-aging { grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); align-items: start; }
 .aging-list { display: grid; gap: 9px; }
-.tri { width: 12px; height: 12px; vertical-align: -1px; margin-left: 3px; }
-.tri.t-warn { color: var(--warn); } .tri.t-bad { color: var(--critical); } .tri.t-dark { color: var(--text); }
-.flame { margin-left: 3px; font-size: 12px; }
-.aging-row { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 8px; align-items: baseline; position: relative; padding-bottom: 7px; }
+/* 账龄严重度：实心三角 + 内嵌叹号，颜色分档（金黄 / 红 / 黑），黑三角的叹号反白 */
+.tri { width: 17px; height: 17px; display: block; }
+.tri .mark { stroke: #14140f; stroke-width: 2.6; stroke-linecap: round; }
+.tri.t-gold { color: #f0b400; } .tri.t-red { color: #e03131; }
+.tri.t-dark { color: var(--text); } .tri.t-dark .mark { stroke: var(--surface); }
+.flame { font-size: 14px; line-height: 1; }
+.aging-row { display: grid; grid-template-columns: 19px auto 1fr auto; gap: 4px 7px; align-items: center; position: relative; padding-bottom: 7px; }
+.aging-row .ico { display: flex; justify-content: center; align-items: center; height: 17px; }
 .aging-row b { text-align: right; font-variant-numeric: tabular-nums; }
 .aging-row i { position: absolute; left: 0; bottom: 0; height: 3px; min-width: 2px; border-radius: 2px; background: var(--s1); opacity: .45; }
 .who-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
@@ -696,11 +700,11 @@ async function tabPlans(body, params) {
     try {
       const res = await api('/api/receivables', { ...q, size: 50 });
       const a = res.aging, agingTotal = a.not_due + a.d30 + a.d90 + a.d365 + a.d365p;
-      const buckets = [['未到期', a.not_due, 'open', ''], ['逾期 ≤30 天', a.d30, 'warn', '<span class="flame" title="刚逾期，尽快催">🔥</span>'],
-        ['31–90 天', a.d90, 'warn', triIcon('t-warn', '逾期 1–3 个月')], ['91–365 天', a.d365, 'bad', triIcon('t-bad', '逾期超过 3 个月')],
-        ['超过 1 年', a.d365p, 'bad', triIcon('t-dark', '逾期超过 1 年，回收难度大')]];
+      const buckets = [['未到期', a.not_due, 'open', ''], ['逾期 ≤30 天', a.d30, 'warn', triIcon('t-gold', '刚逾期，尽快催')],
+        ['31–90 天', a.d90, 'warn', triIcon('t-red', '逾期 1–3 个月')], ['91–365 天', a.d365, 'bad', triIcon('t-dark', '逾期超过 3 个月')],
+        ['超过 1 年', a.d365p, 'bad', '<span class="flame" title="逾期超过 1 年，回收难度大">🔥</span>']];
       $('#summary').innerHTML = `<h2>未回款账龄 <span class="count">按当前筛选</span></h2>
-        <div class="aging-list">${buckets.map(([n, v, c, icon]) => `<div class="aging-row"><span class="tag ${c}">${n}${icon}</span><b>${fmtMoney(v)}</b><span class="muted small">${agingTotal ? (v / agingTotal * 100).toFixed(0) + '%' : '—'}</span><i style="width:${agingTotal ? Math.max(v / agingTotal * 100, 0.5) : 0}%"></i></div>`).join('')}</div>
+        <div class="aging-list">${buckets.map(([n, v, c, icon]) => `<div class="aging-row"><span class="ico">${icon}</span><span class="tag ${c}">${n}</span><b>${fmtMoney(v)}</b><span class="muted small">${agingTotal ? (v / agingTotal * 100).toFixed(0) + '%' : '—'}</span><i style="width:${agingTotal ? Math.max(v / agingTotal * 100, 0.5) : 0}%"></i></div>`).join('')}</div>
         <p class="hint" title="“部分回款”按计划金额全额计入；CRM 未提供已回部分的金额">合计 <b>${fmtMoney(agingTotal)}</b></p>`;
       const cur = $('[name=who]').value;
       $('#byWho').innerHTML = `<h2>按业务员（未回款） <span class="count">${res.by_who.length} 人</span> <button class="btn small" data-export="receivables_by_who" title="把这张汇总表导出 .xlsx">导出汇总</button></h2>
@@ -977,7 +981,9 @@ async function pageCustomerAnalysis(view, params) {
 const unitTag = (p) => p.unit ? ` <span class="muted small"${p.unit_assumed ? ' title="CRM 未填计量单位，色谱填料按公斤计"' : ''}>${esc(p.unit)}${p.unit_assumed ? '*' : ''}</span>` : '';
 
 // 账龄分档的警告三角：用内联 SVG，颜色跟随 class（橙 / 红 / 黑），emoji 的 ⚠️ 改不了颜色
-const triIcon = (cls, title) => `<svg class="tri ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round"><title>${title}</title><path d="M12 3.6 22.2 21H1.8L12 3.6Z"/><path d="M12 10v4.4M12 17.6h.01"/></svg>`;
+const triIcon = (cls, title) => `<svg class="tri ${cls}" viewBox="0 0 24 24" aria-hidden="false"><title>${title}</title>`
+  + `<path d="M11.13 2.6a1 1 0 0 1 1.74 0l10.1 17.9A1 1 0 0 1 22.1 22H1.9a1 1 0 0 1-.87-1.5L11.13 2.6Z" fill="currentColor"/>`
+  + `<path class="mark" d="M12 9v5" fill="none"/><path class="mark" d="M12 17.6h.01" fill="none"/></svg>`;
 
 // 应收计划的排序项（窄屏下拉用；桌面点表头）
 const PLAN_SORT_OPTS = [['date', '计划日期', '晚→早', '早→晚'], ['overdue', '逾期天数', '多→少', '少→多'], ['amount', '金额', '高→低', '低→高'],
