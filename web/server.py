@@ -40,6 +40,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from sync.specs import CONTRACT_CUSTOM_FIELDS
 from sync.store import col_name
+from web.auth import AccessControl
 from web.export import EXPORT_MAX, Download, build_export
 from web.reports import PRODUCT_JOIN, ReportQueries
 
@@ -956,12 +957,16 @@ def export_query(q: Query, kind: str) -> Any:
 
 class Handler(BaseHTTPRequestHandler):
     mirror: Mirror  # 由 make_server 注入
-    server_version = "xtools-web/0.5"
+    access: AccessControl
+    server_version = "xtools-web/0.6"
 
     def log_message(self, fmt: str, *args: Any) -> None:  # 访问日志降级为 debug
         logger.debug("%s " + fmt, self.address_string(), *args)
 
     def do_GET(self) -> None:  # noqa: N802
+        denial = self.access.check(self.client_address[0], self.headers.get("Authorization"))
+        if denial:
+            return self.send_denied(*denial)
         url = urlparse(self.path)
         path = url.path
         if path in ("/", "/index.html"):
@@ -1008,6 +1013,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_denied(self, status: int, message: str) -> None:
+        logger.warning("拒绝访问 %s %s：%s", self.client_address[0], self.path.split("?")[0], message)
+        body = json.dumps({"error": message}, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        if status == 401:
+            self.send_header("WWW-Authenticate", 'Basic realm="XTools", charset="UTF-8"')
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def send_download(self, d: Download) -> None:
         ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", d.filename) or "export.xlsx"
         self.send_response(200)
@@ -1037,9 +1054,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def make_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8790) -> ThreadingHTTPServer:
+def make_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8790, access: Optional[AccessControl] = None) -> ThreadingHTTPServer:
     mirror = Mirror(db_path)
-    handler = type("BoundHandler", (Handler,), {"mirror": mirror})
+    handler = type("BoundHandler", (Handler,), {"mirror": mirror, "access": access or AccessControl(host)})
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     return server

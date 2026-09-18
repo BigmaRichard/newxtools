@@ -2,7 +2,14 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1c1b" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="XTools">
+<meta name="format-detection" content="telephone=no">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232a78d6'/%3E%3Ctext x='32' y='43' font-family='Helvetica,Arial' font-size='30' font-weight='bold' fill='white' text-anchor='middle'%3EMW%3C/text%3E%3C/svg%3E">
 <title>Microwants · XTools 数据前台</title>
 <style>
 :root {
@@ -44,6 +51,8 @@ h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
 h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600; letter-spacing: .02em; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
 .grid { display: grid; gap: 14px; }
+.grid > * { min-width: 0; }            /* 网格子项默认 min-width:auto，内容宽的卡片会撑破布局 */
+.card { min-width: 0; }
 .kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 14px; }
 .kpi .label { color: var(--muted); font-size: 12px; }
 .kpi .value { font-size: 24px; font-weight: 600; margin: 2px 0; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
@@ -114,7 +123,7 @@ tr.click:hover td { background: var(--surface-2); }
 .kv div { display: flex; gap: 8px; min-width: 0; }
 .kv label { color: var(--muted); white-space: nowrap; min-width: 64px; }
 .kv span { word-break: break-all; }
-.section-title { display: flex; align-items: baseline; gap: 10px; }
+.section-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .section-title .count { color: var(--muted); font-weight: 400; font-size: 12px; }
 .money { font-variant-numeric: tabular-nums; }
 .year-sel { margin-left: 8px; }
@@ -147,12 +156,101 @@ nav { flex-wrap: wrap; }
 th.sortable { cursor: pointer; } th.sortable:hover { color: var(--text); }
 td.drill a { font-weight: 500; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
+.filter-more { display: none; }
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .toolbar .spacer { flex: 1; }
 tr.total td { font-weight: 600; background: var(--surface-2); }
 .mini.tall { height: 70px; }
 .mini i.act { background: var(--s3); }
 .mini i.neg { background: var(--critical); }
+
+/* ------------------------------------------------------------------ 手机适配（0.6）
+   窄屏下：导航横向滚动，网格与筛选栏单列，带表头的表格转成一行一张卡片（td 的 data-label 由 JS 按表头补上），
+   抽屉全屏，图表压低并支持点按查看数值。断点 860px（平板竖屏）与 720px（手机）。 */
+.narrow-only { display: none; }
+@media (max-width: 860px) {
+  .bar { padding: 0 12px; gap: 10px; }
+  .brand { font-size: 14px; }
+  .brand small { display: none; }
+  nav { order: 3; width: 100%; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding: 0 0 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  nav::-webkit-scrollbar { display: none; }
+  nav a { white-space: nowrap; padding: 6px 10px; flex: 0 0 auto; }
+  .sync { margin-left: auto; max-width: 52vw; overflow: hidden; text-overflow: ellipsis; }
+  .wide-only { display: none; }
+  .narrow-only { display: inline; }
+}
+@media (max-width: 720px) {
+  main { padding: 12px 12px 44px; padding-bottom: calc(44px + env(safe-area-inset-bottom)); }
+  h1 { font-size: 18px; margin-bottom: 10px; }
+  h1 .small, h1 .muted { display: block; font-size: 12px; margin-top: 2px; }
+  .card { padding: 12px; border-radius: 12px; }
+  .grid { gap: 10px; }
+  .kpis, .kpis.dense { grid-template-columns: 1fr 1fr; }
+  .kpi .value { font-size: 20px; }
+  .kpi .sub { font-size: 11px; }
+  .filters { gap: 6px; margin-bottom: 10px; }
+  .filters input, .filters select { font-size: 16px; }          /* iOS 聚焦时不自动放大 */
+  .filters input[type=text] { width: 100%; }
+  .filters input[type=date] { flex: 1 1 42%; width: auto; }
+  .filters select { flex: 1 1 45%; }
+  .filters .sep { display: none; }
+  .filters .btn { flex: 1 1 auto; padding: 8px 12px; }
+  .filters:not(.open) input[type=text] { width: auto; flex: 1 1 120px; }       /* 折叠时与“筛选”“查询”同行 */
+  .filters:not(.open) > .filter-more, .filters:not(.open) > #go { flex: 0 0 auto; }
+  .filters label.small { flex: 1 1 100%; }
+  .btn { padding: 8px 12px; }
+  .tabs { overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs a { white-space: nowrap; }
+  .chips { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; padding-bottom: 2px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { white-space: nowrap; padding: 4px 12px; }
+  .toolbar { gap: 6px; }
+  .toolbar .spacer { display: none; }
+  .years { display: flex; overflow-x: auto; scrollbar-width: none; }
+  .years label { margin-right: 10px; }
+  .pager { justify-content: space-between; }
+  .pager .btn { flex: 0 0 auto; }
+  .summary, .note, .hint { font-size: 12px; }
+  /* 带表头的表格 → 卡片 */
+  table[data-cards] thead { display: none; }
+  table[data-cards], table[data-cards] tbody, table[data-cards] td { display: block; width: auto; }
+  table[data-cards] tbody tr { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; background: var(--surface-2); }
+  table[data-cards] tbody td.lead { order: -1; }                               /* 卡片标题排到最上 */
+  table[data-cards] tbody tr.total { background: var(--accent-soft); }
+  table[data-cards] tbody tr.click:active { background: var(--accent-soft); }
+  table[data-cards] tbody td { border: none; padding: 2px 0; display: flex; gap: 10px; align-items: baseline; text-align: left; white-space: normal; }
+  table[data-cards] tbody td::before { content: attr(data-label); color: var(--muted); font-size: 12px; flex: 0 0 82px; }
+  table[data-cards] tbody td > .cellwrap { flex: 1 1 auto; min-width: 0; }     /* 单元格里的多个块级元素仍各占一行 */
+  table[data-cards] tbody td.num > .cellwrap { text-align: right; }
+  table[data-cards] tbody td[data-blank] { display: none; }
+  table[data-cards] tbody td.lead { margin-bottom: 2px; }
+  table[data-cards] tbody td.lead > .cellwrap { font-weight: 600; font-size: 15px; }
+  table[data-cards] tbody td.lead::before { display: none; }
+  /* 筛选栏折叠：只留第一个控件与“查询”，点“筛选”展开 */
+  .filter-more { display: inline-block; order: -1; }
+  .filters:not(.open) > *:nth-child(n+3):not(#go) { display: none; }
+  .filters:not(.open) > #go { order: 1; }
+  table[data-cards] .ellipsis { max-width: none !important; white-space: normal; overflow: visible; }
+  table[data-cards] tbody td > div.muted.small { margin-top: 0; }
+  /* 无表头的两三列小表（Top 榜、按人员统计等）保持表格，只收紧留白并允许长词折行 */
+  table:not([data-cards]) { table-layout: fixed; }
+  table:not([data-cards]) th, table:not([data-cards]) td { padding: 6px 4px; overflow-wrap: anywhere; }
+  table[data-cards] tbody td { overflow-wrap: anywhere; }
+  .ellipsis { max-width: 60vw; }
+  .kv { grid-template-columns: 1fr; }
+  .kv label { min-width: 58px; }
+  .drawer { width: 100vw; }
+  .drawer .head { padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top)); }
+  .drawer .head h2 { font-size: 15px; }
+  .drawer .body { padding: 12px 12px 40px; padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+  h3 { margin: 14px 0 6px; }
+  .tip { max-width: 78vw; }
+}
+@media (max-width: 360px) {
+  .kpis, .kpis.dense { grid-template-columns: 1fr; }
+  table[data-cards] tbody td::before { flex-basis: 74px; }
+}
 </style>
 </head>
 <body>
@@ -238,6 +336,53 @@ function inlineBar(value, max, text) {
   const w = max ? Math.max(0, Math.min(100, value / max * 100)) : 0;
   return `<span class="inline-bar"><i style="width:${w}%"></i><span>${text}</span></span>`;
 }
+// 窄屏下表格改为一行一卡（样式见 @media），这里按 thead 给每个单元格补上标签；无表头的小表保持原样。
+function decorateTables(root) {
+  root.querySelectorAll('table:not([data-scanned])').forEach((t) => {
+    t.setAttribute('data-scanned', '');
+    const heads = [...t.querySelectorAll('thead th')].map((th) => th.textContent.replace(/\s+/g, ' ').trim());
+    if (heads.length < 5) return;                                      // 三四列的小汇总表在窄屏仍以表格更好读
+    t.setAttribute('data-cards', '');
+    t.querySelectorAll('tbody > tr').forEach((tr) => {
+      const tds = [...tr.children];
+      if (tds.length === 1 && tds[0].hasAttribute('colspan')) return;   // “没有符合条件的记录”整行
+      let lead = tds.findIndex((td) => td.classList.contains('lead'));  // 模板标了卡片标题就用它
+      tds.forEach((td, i) => {
+        const text = td.textContent.trim();
+        if (heads[i]) td.setAttribute('data-label', heads[i]);
+        if (!text || text === '—') td.setAttribute('data-blank', '');
+        else if (lead < 0 && text.length > 2) lead = i;
+        if (td.children.length > 1 && !td.querySelector(':scope > .cellwrap')) {  // 一格里有多块内容时包一层，卡片里才会竖着排
+          const box = document.createElement('div');
+          box.className = 'cellwrap';
+          while (td.firstChild) box.appendChild(td.firstChild);
+          td.appendChild(box);
+        }
+      });
+      if (lead >= 0) tds[lead].classList.add('lead');
+    });
+  });
+}
+// 窄屏下筛选栏折叠：插入“筛选”按钮，展开前只显示第一个控件与“查询”
+function decorateFilters(root) {
+  root.querySelectorAll('.filters:not([data-mob])').forEach((f) => {
+    f.setAttribute('data-mob', '');
+    if (f.querySelectorAll('input:not([type=hidden]), select').length < 3) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn filter-more';
+    btn.textContent = '筛选 ▾';
+    btn.addEventListener('click', () => { btn.textContent = f.classList.toggle('open') ? '收起 ▴' : '筛选 ▾'; });
+    f.insertBefore(btn, f.firstChild);
+  });
+}
+let scanQueued = false;
+new MutationObserver(() => {
+  if (scanQueued) return;
+  scanQueued = true;
+  requestAnimationFrame(() => { scanQueued = false; decorateTables(document); decorateFilters(document); });
+}).observe(document.body, { childList: true, subtree: true });
+
 function bindLinks(root) {
   root.querySelectorAll('a[data-cust]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openCustomer(Number(a.dataset.cust)); }));
   root.querySelectorAll('a[data-order]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openOrder(Number(a.dataset.order)); }));
@@ -282,10 +427,19 @@ function hashParams() {
 const tip = $('#tip');
 function showTip(html, x, y) { tip.innerHTML = html; tip.style.display = 'block'; const w = tip.offsetWidth, h = tip.offsetHeight; tip.style.left = Math.min(x + 14, innerWidth - w - 10) + 'px'; tip.style.top = Math.max(8, Math.min(y + 14, innerHeight - h - 10)) + 'px'; }
 function hideTip() { tip.style.display = 'none'; }
+let tipTouched = 0;
+document.addEventListener('touchstart', (e) => { if (!(e.target instanceof Element) || !e.target.closest('rect.hit')) hideTip(); }, { passive: true });
+addEventListener('scroll', () => { if (tip.style.display === 'block' && Date.now() - tipTouched > 400) hideTip(); }, { passive: true });
 
+// 轴标签的短格式（窄屏用，避免 y 轴占掉半屏）
+const fmtAxis = (v) => { const n = Number(v || 0); if (Math.abs(n) >= 1e8) return (n / 1e8).toFixed(1) + '亿'; if (Math.abs(n) >= 1e4) return Math.round(n / 1e4) + '万'; return String(Math.round(n)); };
 // 分组柱图：labels[], series[{name,color,values[]}], tipFn(i) → html
 function barChart(el, { labels, series, tipFn, height = 330, format = fmtWan }) {
-  const W = Math.max(el.clientWidth || 800, 320), H = height, padL = 58, padR = 10, padT = 12, padB = 28;
+  const W = Math.max(el.clientWidth || 800, 300);
+  const narrow = W < 520;                                    // 手机：压低高度、收窄留白、少画 x 标签
+  const H = narrow ? Math.min(height, 235) : height;
+  const padL = narrow ? 40 : 58, padR = narrow ? 6 : 10, padT = 12, padB = narrow ? 24 : 28;
+  if (narrow) format = fmtAxis;
   const max = Math.max(1, ...series.flatMap((s) => s.values));
   const step = niceStep(max / 4), top = Math.ceil(max / step) * step;
   const iw = W - padL - padR, ih = H - padT - padB;
@@ -302,12 +456,18 @@ function barChart(el, { labels, series, tipFn, height = 330, format = fmtWan }) 
       bars += `<rect class="vbar" x="${x0 + k * (bw + 2)}" y="${y(v)}" width="${bw}" height="${h}" fill="${s.color}"/>`;
     });
     hits += `<rect class="hit" data-i="${i}" x="${padL + i * gw}" y="${padT}" width="${gw}" height="${ih}"/>`;
-    if (labels.length <= 16 || i % Math.ceil(labels.length / 12) === 0) xs += `<text x="${padL + i * gw + gw / 2}" y="${H - 8}" text-anchor="middle">${esc(lab)}</text>`;
+    if (labels.length <= (narrow ? 7 : 16) || i % Math.ceil(labels.length / (narrow ? 6 : 12)) === 0) xs += `<text x="${padL + i * gw + gw / 2}" y="${H - 8}" text-anchor="middle">${esc(lab)}</text>`;
   });
   el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${g}${bars}${xs}${hits}</svg>`;
   el.querySelectorAll('rect.hit').forEach((r) => {
-    r.addEventListener('mousemove', (e) => showTip(tipFn(Number(r.dataset.i)), e.clientX, e.clientY));
-    r.addEventListener('mouseleave', hideTip);
+    // 触摸后浏览器会补发一串鼠标事件（最后是 mouseleave），600 毫秒内忽略，否则刚点出来的数值立刻被关掉
+    r.addEventListener('mousemove', (e) => { if (Date.now() - tipTouched > 600) showTip(tipFn(Number(r.dataset.i)), e.clientX, e.clientY); });
+    r.addEventListener('mouseleave', () => { if (Date.now() - tipTouched > 600) hideTip(); });
+    r.addEventListener('touchstart', (e) => {
+      const t = e.touches[0] || e.changedTouches[0];
+      tipTouched = Date.now();
+      if (t) showTip(tipFn(Number(r.dataset.i)), t.clientX, t.clientY);
+    }, { passive: true });
   });
 }
 function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))); const n = raw / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; }
@@ -337,7 +497,7 @@ async function pageOverview(view, params) {
       <div class="card">
         <div class="section-title"><h2>月度订单额与回款额</h2><select class="year-sel" id="yearSel">${META.years.map((y) => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select>
           <span class="count">${year} 年订单 ${fmtWan(d.year_total.amount)}（${fmtInt(d.year_total.count)} 单）· 回款 ${fmtWan(d.year_receipts.amount)}（${fmtInt(d.year_receipts.count)} 笔）</span></div>
-        <div class="legend"><span><i style="background:var(--s1)"></i>订单额</span><span><i style="background:var(--s2)"></i>回款额</span><span class="muted">悬停查看上年同期 · 不含意外中止订单</span></div>
+        <div class="legend"><span><i style="background:var(--s1)"></i>订单额</span><span><i style="background:var(--s2)"></i>回款额</span><span class="muted">悬停或点按查看上年同期 · 不含意外中止订单</span></div>
         <div id="monthChart"></div>
       </div>
       <div class="card">
@@ -403,7 +563,7 @@ async function pageOrders(view, params) {
       const res = await api('/api/orders', { ...q, size: 50 });
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 单，金额合计 <b>${fmtMoney(res.amount)}</b>（不含意外中止）</p>
         <table><thead><tr><th>日期</th><th>单号</th><th>客户</th><th>主题</th><th class="num">金额</th><th class="num">已回款</th><th>状态</th><th>发货</th><th>业务员</th></tr></thead><tbody>
-        ${res.rows.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td>${custLink(o.customer)}</td><td><div class="ellipsis" title="${esc(o.subject)}">${esc(o.subject)}</div>${termLine(o)}</td>
+        ${res.rows.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="lead">${custLink(o.customer)}</td><td><div class="ellipsis" title="${esc(o.subject)}">${esc(o.subject)}</div>${termLine(o)}</td>
           <td class="num">${fmtMoney(o.amount)}${o.money_type !== 'RMB' ? ` <span class="muted small">${esc(o.money_type)}</span>` : ''}</td><td class="num">${o.received ? fmtMoney(o.received) : '<span class="muted">—</span>'}</td>
           <td>${statusTag(o)}</td><td class="nowrap small">${esc(o.st_send_text)}${o.shipments ? ` <span class="muted">(${o.shipments})</span>` : ''}</td><td class="nowrap">${esc(o.who)}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的订单</td></tr>'}
         </tbody></table>`;
@@ -442,7 +602,7 @@ async function pageCustomers(view, params) {
       const res = await api('/api/customers', { ...q, size: 50 });
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 家客户</p>
         <table><thead><tr><th>客户</th><th>所有者</th><th>周期</th><th>阶段</th><th>城市</th><th class="num">订单数</th><th class="num">订单额</th><th>最近订单</th><th class="num">回款额</th><th class="num">联系人</th></tr></thead><tbody>
-        ${res.rows.map((c) => `<tr class="click" data-cust="${c.id}"><td>${esc(c.name)}${c.short && c.short !== c.name ? `<div class="muted small">${esc(c.short)}</div>` : ''}</td><td class="nowrap">${esc(c.owner)}</td><td class="nowrap small">${esc(c.life_text)}</td><td class="nowrap small">${esc(c.stage_text)}</td><td class="nowrap">${esc(c.city || '')}</td>
+        ${res.rows.map((c) => `<tr class="click" data-cust="${c.id}"><td class="lead">${esc(c.name)}${c.short && c.short !== c.name ? `<div class="muted small">${esc(c.short)}</div>` : ''}</td><td class="nowrap">${esc(c.owner)}</td><td class="nowrap small">${esc(c.life_text)}</td><td class="nowrap small">${esc(c.stage_text)}</td><td class="nowrap">${esc(c.city || '')}</td>
           <td class="num">${fmtInt(c.orders)}</td><td class="num">${fmtMoney(c.order_amount)}</td><td class="nowrap">${esc(c.last_order || '—')}</td><td class="num">${fmtMoney(c.receipts)}</td><td class="num">${c.contacts}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">没有符合条件的客户</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
@@ -491,7 +651,7 @@ async function tabPlans(body, params) {
       $('#byWho').innerHTML = `<h2>按业务员（未回款）</h2><table><thead><tr><th>业务员</th><th class="num">期数</th><th class="num">未回金额</th><th class="num">其中逾期</th></tr></thead><tbody>${res.by_who.map((w) => `<tr><td>${esc(w.who)}</td><td class="num">${w.count}</td><td class="num">${fmtMoney(w.amount)}</td><td class="num ${w.overdue ? 'down' : ''}">${fmtMoney(w.overdue)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">无</td></tr>'}</tbody></table>`;
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 期，金额合计 <b>${fmtMoney(res.amount)}</b></p>
         <table><thead><tr><th>计划日期</th><th>客户</th><th>订单号</th><th class="num">期次</th><th class="num">金额</th><th>状态</th><th>业务员</th><th>备注</th></tr></thead><tbody>
-        ${res.rows.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td>${custLink(p.customer)}</td><td class="nowrap">${orderLink(p.order_id, p.order_no)}</td><td class="num">${esc(p.serial || '')}</td><td class="num">${fmtMoney(p.amount)}</td><td>${planTag(p)}</td><td class="nowrap">${esc(p.who)}</td><td class="ellipsis small" title="${esc(p.memo)}">${esc(p.memo || '')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">没有符合条件的记录</td></tr>'}
+        ${res.rows.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td class="lead">${custLink(p.customer)}</td><td class="nowrap">${orderLink(p.order_id, p.order_no)}</td><td class="num">${esc(p.serial || '')}</td><td class="num">${fmtMoney(p.amount)}</td><td>${planTag(p)}</td><td class="nowrap">${esc(p.who)}</td><td class="ellipsis small" title="${esc(p.memo)}">${esc(p.memo || '')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">没有符合条件的记录</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       bindLinks(list);
@@ -526,7 +686,7 @@ async function tabReceipts(body, params) {
       $('#byWho').innerHTML = `<h2>按业务员</h2><table><thead><tr><th>业务员</th><th class="num">笔数</th><th class="num">金额</th></tr></thead><tbody>${res.by_who.map((w) => `<tr><td>${esc(w.who || '—')}</td><td class="num">${w.count}</td><td class="num">${fmtMoney(w.amount)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">无</td></tr>'}</tbody></table>`;
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 笔，合计 <b>${fmtMoney(res.amount)}</b></p>
         <table><thead><tr><th>日期</th><th>客户</th><th>订单号</th><th class="num">金额</th><th>付款方式</th><th>分类</th><th>开票</th><th>业务员</th><th>备注</th></tr></thead><tbody>
-        ${res.rows.map((n) => `<tr><td class="nowrap">${esc(n.date)}</td><td>${custLink(n.customer)}</td><td class="nowrap">${orderLink(n.order_id, n.order_no)}</td><td class="num">${fmtMoney(n.amount)}${n.money_type !== 'RMB' ? ` <span class="muted small">${esc(n.money_type)}</span>` : ''}</td><td class="nowrap small">${esc(n.type_text)}</td><td class="nowrap small">${esc(n.ctype_text)}</td><td class="nowrap small">${esc(n.invoice_text)}</td><td class="nowrap">${esc(n.who || '')}</td><td class="ellipsis small" title="${esc(n.memo)}">${esc(n.memo || '')}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的记录</td></tr>'}
+        ${res.rows.map((n) => `<tr><td class="nowrap">${esc(n.date)}</td><td class="lead">${custLink(n.customer)}</td><td class="nowrap">${orderLink(n.order_id, n.order_no)}</td><td class="num">${fmtMoney(n.amount)}${n.money_type !== 'RMB' ? ` <span class="muted small">${esc(n.money_type)}</span>` : ''}</td><td class="nowrap small">${esc(n.type_text)}</td><td class="nowrap small">${esc(n.ctype_text)}</td><td class="nowrap small">${esc(n.invoice_text)}</td><td class="nowrap">${esc(n.who || '')}</td><td class="ellipsis small" title="${esc(n.memo)}">${esc(n.memo || '')}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的记录</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       bindLinks(list);
@@ -563,9 +723,9 @@ async function pageActions(view, params) {
       $('#byWho').innerHTML = `<h2>按人员 <span class="count">${fmtInt(res.total)} 条 · 条数与字数</span></h2><table><tbody>${res.by_who.map((w) => `<tr><td><a class="who-chip" data-part="${esc(w.part)}" title="只看此人">${esc(w.who)}</a></td><td style="width:55%">${inlineBar(w.count, maxWho, w.count)}</td><td class="num muted small">${fmtInt(w.chars)} 字</td></tr>`).join('') || '<tr><td class="empty">无</td></tr>'}</tbody></table>`;
       const maxType = Math.max(1, ...res.by_type.map((t) => t.count));
       $('#byType').innerHTML = `<h2>按类型</h2><table><tbody>${res.by_type.map((t) => `<tr><td>${esc(t.text)}</td><td style="width:60%">${inlineBar(t.count, maxType, t.count)}</td></tr>`).join('') || '<tr><td class="empty">无</td></tr>'}</tbody></table>`;
-      $('#byDay').innerHTML = `<h2>按日 <span class="count">${res.by_day.length ? esc(res.by_day[0].date) + ' 起' : ''}</span></h2>${miniBars(res.by_day.map((d) => d.count), '', res.by_day.map((d) => `${d.date}：${d.count} 条`))}<p class="hint">悬停查看每日条数</p>`;
+      $('#byDay').innerHTML = `<h2>按日 <span class="count">${res.by_day.length ? esc(res.by_day[0].date) + ' 起' : ''}</span></h2>${miniBars(res.by_day.map((d) => d.count), '', res.by_day.map((d) => `${d.date}：${d.count} 条`))}<p class="hint">悬停查看每日条数（手机上小图无提示，见下方列表）</p>`;
       list.innerHTML = `<table><thead><tr><th>日期</th><th>人员</th><th>类型</th><th>客户</th><th>联系人</th><th>内容</th></tr></thead><tbody>
-        ${res.rows.map((a) => `<tr><td class="nowrap">${esc(a.date || '—')}${dateFlag(a.date_flag)}${a.end_date && a.end_date !== a.date ? `<div class="muted small">至 ${esc(a.end_date)}</div>` : ''}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="nowrap small">${esc(a.type_text || a.cale_text)}</td><td>${custLink(a.customer)}</td><td class="nowrap">${esc(a.contact || '')}${mentions(a)}</td><td>${actionText(a)}${a.order_id ? `<div class="small">关联订单 ${orderLink(a.order_id)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">没有符合条件的记录</td></tr>'}
+        ${res.rows.map((a) => `<tr><td class="nowrap">${esc(a.date || '—')}${dateFlag(a.date_flag)}${a.end_date && a.end_date !== a.date ? `<div class="muted small">至 ${esc(a.end_date)}</div>` : ''}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="nowrap small">${esc(a.type_text || a.cale_text)}</td><td class="lead">${custLink(a.customer)}</td><td class="nowrap">${esc(a.contact || '')}${mentions(a)}</td><td>${actionText(a)}${a.order_id ? `<div class="small">关联订单 ${orderLink(a.order_id)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">没有符合条件的记录</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       bindLinks(list);
@@ -633,7 +793,7 @@ async function pageSales(view, params) {
         ${d.rows.map((r, i) => {
           const name = d.by === 'customer' ? custLink(r.customer) : d.by === 'product' ? prodLink({ id: r.id, sn: r.sn, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
           const drillable = !(d.by === 'customer' && !r.id);
-          return `<tr><td class="muted">${i + 1}</td><td class="drill">${name}${r.sub ? `<div class="muted small">${esc(r.sub)}</div>` : ''}</td>
+          return `<tr><td class="muted">${i + 1}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small">${esc(r.sub)}</div>` : ''}</td>
             ${years.map((y, k) => { const c = r.cells[y] || { amount: 0, count: 0, qty: 0 }; return `<td class="num">${k === 0 ? inlineBar(c.amount, max, fmtMoney(c.amount)) : fmtMoney(c.amount)}<div class="muted small">${c.count ? `${fmtInt(c.count)} 单` : '—'}${d.line_mode && c.qty ? ` · ${fmtInt(c.qty)}` : ''}</div></td>`; }).join('')}
             <td class="num">${r.yoy == null ? '<span class="muted">—</span>' : `<span class="${r.yoy >= 0 ? 'up' : 'down'}">${r.yoy > 0 ? '+' : ''}${r.yoy}%</span>`}</td><td class="num">${fmtMoney(r.total)}</td>
             <td class="nowrap small">${drillable && drill[d.by] ? `<a data-drill="${i}">下钻 ${dimName[drill[d.by]]}</a> · ` : ''}<a data-orders="${i}">订单</a></td></tr>`; }).join('') || `<tr><td colspan="${years.length + 5}" class="empty">没有数据</td></tr>`}
@@ -691,27 +851,27 @@ async function pageCustomerAnalysis(view, params) {
           </div>
           <div class="card"><h2>按所有者 <span class="count">客户所有者口径</span></h2>
             <table><thead><tr><th>所有者</th><th class="num">客户</th><th class="num">${y} 年有单</th><th class="num">新客</th><th class="num">1 年+未下单</th><th class="num">${y} 年金额</th><th class="num">同比</th></tr></thead><tbody>
-            ${d.by_owner.slice(0, 20).map((o) => `<tr><td>${whoLink(o.owner)}</td><td class="num">${fmtInt(o.customers)}</td><td class="num">${fmtInt(o.active)}</td><td class="num">${fmtInt(o.new)}</td><td class="num">${fmtInt(o.idle)}</td><td class="num">${fmtMoney(o.amount)}</td><td class="num">${yoyText(o.amount, o.prev_amount)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">无</td></tr>'}
+            ${d.by_owner.slice(0, 20).map((o) => `<tr><td class="lead">${whoLink(o.owner)}</td><td class="num">${fmtInt(o.customers)}</td><td class="num">${fmtInt(o.active)}</td><td class="num">${fmtInt(o.new)}</td><td class="num">${fmtInt(o.idle)}</td><td class="num">${fmtMoney(o.amount)}</td><td class="num">${yoyText(o.amount, o.prev_amount)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">无</td></tr>'}
             </tbody></table></div>
         </div>
         <div class="card" style="margin-top:14px"><h2>客户分层明细 <span class="count">按 ${y} 年金额排序 · 共 ${fmtInt(d.tier_total)} 家，显示前 ${fmtInt(d.tier_rows.length)}</span></h2>
           <table><thead><tr><th>层</th><th>客户</th><th>所有者</th><th>周期</th><th class="num">${y} 年金额</th><th class="num">占比</th><th class="num">累计</th><th class="num">单数</th><th class="num">上年金额</th><th class="num">变化</th><th>首单</th></tr></thead><tbody>
-          ${d.tier_rows.map((r) => `<tr><td><span class="tier ${r.tier}">${r.tier}</span></td><td>${custLink(r)}</td><td class="nowrap">${esc(r.owner)}</td><td class="small nowrap">${esc(r.life_text)}</td><td class="num">${fmtMoney(r.amount)}</td><td class="num">${r.share}%</td><td class="num muted">${r.cum_share}%</td><td class="num">${r.count}</td><td class="num">${fmtMoney(r.prev_amount)}</td><td class="num">${yoyText(r.amount, r.prev_amount)}</td><td class="nowrap small">${esc(r.first_date)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">无</td></tr>'}
+          ${d.tier_rows.map((r) => `<tr><td><span class="tier ${r.tier}">${r.tier}</span></td><td class="lead">${custLink(r)}</td><td class="nowrap">${esc(r.owner)}</td><td class="small nowrap">${esc(r.life_text)}</td><td class="num">${fmtMoney(r.amount)}</td><td class="num">${r.share}%</td><td class="num muted">${r.cum_share}%</td><td class="num">${r.count}</td><td class="num">${fmtMoney(r.prev_amount)}</td><td class="num">${yoyText(r.amount, r.prev_amount)}</td><td class="nowrap small">${esc(r.first_date)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">无</td></tr>'}
           </tbody></table></div>
         <div class="grid row22" style="margin-top:14px">
           <div class="card"><h2>流失预警 <span class="count">有过订单、最近一单距今</span></h2>
             <div class="chips" style="margin-bottom:10px">${d.churn.buckets.map((b) => `<span class="chip ${b.key === d.churn.bucket ? 'active' : ''}" data-idle="${b.key}">${b.label} · ${fmtInt(b.count)} 家 · ${fmtWan(b.amount)}</span>`).join('')}</div>
             <table><thead><tr><th>客户</th><th>所有者</th><th>末单</th><th class="num">天数</th><th class="num">历史单数</th><th class="num">历史金额</th></tr></thead><tbody>
-            ${d.churn.rows.map((r) => `<tr><td>${custLink(r)}</td><td class="nowrap">${esc(r.owner)}</td><td class="nowrap small">${esc(r.last_date)}</td><td class="num">${r.idle_days}</td><td class="num">${r.count}</td><td class="num">${fmtMoney(r.amount)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">无</td></tr>'}
+            ${d.churn.rows.map((r) => `<tr><td class="lead">${custLink(r)}</td><td class="nowrap">${esc(r.owner)}</td><td class="nowrap small">${esc(r.last_date)}</td><td class="num">${r.idle_days}</td><td class="num">${r.count}</td><td class="num">${fmtMoney(r.amount)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">无</td></tr>'}
             </tbody></table><p class="note">共 ${fmtInt(d.churn.total)} 家，显示前 ${fmtInt(d.churn.rows.length)}；导出可得全部。</p></div>
           <div class="card"><h2>上年有单、${y} 年未下单 <span class="count">${fmtInt(k.lost)} 家 · 上年金额 ${fmtWan(k.lost_amount)}</span></h2>
             <table><thead><tr><th>客户</th><th>所有者</th><th>末单</th><th class="num">上年金额</th><th class="num">上年单数</th></tr></thead><tbody>
-            ${d.lost_rows.map((r) => `<tr><td>${custLink(r)}</td><td class="nowrap">${esc(r.owner)}</td><td class="nowrap small">${esc(r.last_date)}</td><td class="num">${fmtMoney(r.prev_amount)}</td><td class="num">${r.prev_count}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">无</td></tr>'}
+            ${d.lost_rows.map((r) => `<tr><td class="lead">${custLink(r)}</td><td class="nowrap">${esc(r.owner)}</td><td class="nowrap small">${esc(r.last_date)}</td><td class="num">${fmtMoney(r.prev_amount)}</td><td class="num">${r.prev_count}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">无</td></tr>'}
             </tbody></table></div>
         </div>
         <div class="card" style="margin-top:14px"><h2>新客户明细 <span class="count">首单在 ${y} 年 · 共 ${fmtInt(d.new_total)} 家，显示前 ${fmtInt(d.new_rows.length)}</span></h2>
           <table><thead><tr><th>客户</th><th>所有者</th><th>城市</th><th>首单日期</th><th class="num">${y} 年金额</th><th class="num">单数</th></tr></thead><tbody>
-          ${d.new_rows.map((r) => `<tr><td>${custLink(r)}</td><td class="nowrap">${esc(r.owner)}</td><td class="nowrap small">${esc(r.city)}</td><td class="nowrap">${esc(r.first_date)}</td><td class="num">${fmtMoney(r.amount)}</td><td class="num">${r.count}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">无</td></tr>'}
+          ${d.new_rows.map((r) => `<tr><td class="lead">${custLink(r)}</td><td class="nowrap">${esc(r.owner)}</td><td class="nowrap small">${esc(r.city)}</td><td class="nowrap">${esc(r.first_date)}</td><td class="num">${fmtMoney(r.amount)}</td><td class="num">${r.count}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">无</td></tr>'}
           </tbody></table></div>`;
       body.querySelectorAll('.chip[data-idle]').forEach((c) => c.addEventListener('click', () => { $('[name=idle]').value = c.dataset.idle; load(); }));
       bindLinks(body);
@@ -757,7 +917,7 @@ async function pageProducts(view, params) {
       const max = Math.max(1, ...res.rows.map((r) => r.sales_amount));
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 个产品</p>
         <table><thead><tr><th>编号</th><th>产品</th><th>分类</th><th class="num">价格</th><th class="num">库存</th><th class="num">${res.window}销售额</th><th class="num">数量</th><th class="num">单数</th><th class="num">客户</th><th>最近销售</th></tr></thead><tbody>
-        ${res.rows.map((p) => `<tr class="click" data-prod="${p.id}"><td class="nowrap small">${esc(p.sn || '（无编号）')}</td><td><div class="ellipsis" style="max-width:320px" title="${esc(p.name)}">${esc(p.name)}</div><div class="muted small">${esc([p.model, p.unit].filter((x) => x && x !== '-').join(' · '))}${p.status && p.status !== '正常' ? ` · <span class="tag warn">${esc(p.status)}</span>` : ''}</div></td>
+        ${res.rows.map((p) => `<tr class="click" data-prod="${p.id}"><td class="nowrap small">${esc(p.sn || '（无编号）')}</td><td class="lead"><div class="ellipsis" style="max-width:320px" title="${esc(p.name)}">${esc(p.name)}</div><div class="muted small">${esc([p.model, p.unit].filter((x) => x && x !== '-').join(' · '))}${p.status && p.status !== '正常' ? ` · <span class="tag warn">${esc(p.status)}</span>` : ''}</div></td>
           <td class="small">${esc(p.class)}<div class="muted">${esc(p.group)}</div></td><td class="num">${p.price ? fmtMoney(p.price) : '<span class="muted">—</span>'}</td><td class="num">${fmtInt(p.stock)}${p.stock_low ? ` <span class="tag bad" title="下限 ${p.ldown}">低</span>` : ''}</td>
           <td class="num">${inlineBar(p.sales_amount, max, fmtMoney(p.sales_amount))}</td><td class="num">${fmtInt(p.sales_qty)}</td><td class="num">${p.sales_orders}</td><td class="num">${p.sales_customers}</td><td class="nowrap small">${esc(p.last_sale || '—')}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">没有符合条件的产品</td></tr>'}
         </tbody></table>`;
@@ -812,7 +972,7 @@ async function tabPurchaseOrders(body, params) {
       $('#byCurrency').innerHTML = `<h2>按币种 <span class="count">合计 ≈ ${fmtMoney(res.rmb)}</span></h2><table><thead><tr><th>币种</th><th class="num">单数</th><th class="num">原币金额</th><th class="num">折算人民币</th></tr></thead><tbody>${res.by_currency.map((c) => `<tr><td>${esc(c.money_type)}</td><td class="num">${c.count}</td><td class="num">${fmtMoney(c.amount)}</td><td class="num">${fmtMoney(c.rmb)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">无</td></tr>'}</tbody></table><p class="note">供应商来自采购单的 cu_id；若为空，需在 Mac 上运行 sync.py --rebuild --table purchase 重建一次。</p>`;
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 单，折算人民币合计 <b>${fmtMoney(res.rmb)}</b>${$('[name=supplier_id]').value ? ` · 已按供应商筛选 <a id="clearSupplier">清除</a>` : ''}</p>
         <table><thead><tr><th>日期</th><th>单号</th><th>标题</th><th>供应商</th><th>类型</th><th>状态</th><th>入库</th><th class="num">金额</th><th class="num">已付</th><th>经办</th></tr></thead><tbody>
-        ${res.rows.map((u) => `<tr class="click" data-purchase="${u.id}"><td class="nowrap">${esc(u.date)}</td><td class="nowrap small">${esc(u.no)}</td><td class="ellipsis" title="${esc(u.title)}">${esc(u.title)}</td><td>${u.supplier ? custLink(u.supplier) : '<span class="muted">—</span>'}</td><td class="small nowrap">${esc(u.type_text)}</td><td class="small nowrap">${esc(u.status0_text)}</td><td class="small nowrap">${esc(u.status_text)}</td><td class="num">${rmbCell(u)}</td><td class="num">${u.paid ? fmtMoney(u.paid) : '<span class="muted">—</span>'}</td><td class="nowrap">${esc(u.who)}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">没有符合条件的采购单</td></tr>'}
+        ${res.rows.map((u) => `<tr class="click" data-purchase="${u.id}"><td class="nowrap">${esc(u.date)}</td><td class="nowrap small">${esc(u.no)}</td><td class="lead ellipsis" title="${esc(u.title)}">${esc(u.title)}</td><td>${u.supplier ? custLink(u.supplier) : '<span class="muted">—</span>'}</td><td class="small nowrap">${esc(u.type_text)}</td><td class="small nowrap">${esc(u.status0_text)}</td><td class="small nowrap">${esc(u.status_text)}</td><td class="num">${rmbCell(u)}</td><td class="num">${u.paid ? fmtMoney(u.paid) : '<span class="muted">—</span>'}</td><td class="nowrap">${esc(u.who)}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">没有符合条件的采购单</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       list.querySelectorAll('tr[data-purchase]').forEach((tr) => tr.addEventListener('click', () => openPurchase(Number(tr.dataset.purchase))));
@@ -850,7 +1010,7 @@ async function tabPayPlans(body, params) {
       $('#byCurrency').innerHTML = `<h2>按币种 <span class="count">合计 ≈ ${fmtMoney(res.rmb)} · 逾期 ${fmtInt(res.overdue.count)} 期 ≈ ${fmtMoney(res.overdue.rmb)}</span></h2><table><thead><tr><th>币种</th><th class="num">期数</th><th class="num">原币金额</th><th class="num">折算人民币</th></tr></thead><tbody>${res.by_currency.map((c) => `<tr><td>${esc(c.money_type)}</td><td class="num">${c.count}</td><td class="num">${fmtMoney(c.amount)}</td><td class="num">${fmtMoney(c.rmb)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">无</td></tr>'}</tbody></table>`;
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 期，折算人民币合计 <b>${fmtMoney(res.rmb)}</b></p>
         <table><thead><tr><th>计划日期</th><th>供应商</th><th>采购单</th><th class="num">期次</th><th class="num">金额</th><th>状态</th><th>付款方式</th><th>经办</th><th>备注</th></tr></thead><tbody>
-        ${res.rows.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td>${p.supplier ? custLink(p.supplier) : '<span class="muted">—</span>'}</td><td class="small">${p.purchase_id ? `<a data-purchase="${p.purchase_id}">${esc(p.purchase_no || p.purchase_id)}</a>` : ''}<div class="muted ellipsis" style="max-width:260px" title="${esc(p.purchase_title || '')}">${esc(p.purchase_title || '')}</div></td><td class="num">${esc(p.serial || '')}</td><td class="num">${rmbCell(p)}</td><td>${payTag(p)}</td><td class="small nowrap">${esc(p.type_text)}</td><td class="nowrap">${esc(p.who || '')}</td><td class="ellipsis small" title="${esc(p.memo)}">${esc(p.memo || '')}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的记录</td></tr>'}
+        ${res.rows.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td class="lead">${p.supplier ? custLink(p.supplier) : '<span class="muted">—</span>'}</td><td class="small">${p.purchase_id ? `<a data-purchase="${p.purchase_id}">${esc(p.purchase_no || p.purchase_id)}</a>` : ''}<div class="muted ellipsis" style="max-width:260px" title="${esc(p.purchase_title || '')}">${esc(p.purchase_title || '')}</div></td><td class="num">${esc(p.serial || '')}</td><td class="num">${rmbCell(p)}</td><td>${payTag(p)}</td><td class="small nowrap">${esc(p.type_text)}</td><td class="nowrap">${esc(p.who || '')}</td><td class="ellipsis small" title="${esc(p.memo)}">${esc(p.memo || '')}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的记录</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       bindLinks(list);
@@ -879,7 +1039,7 @@ async function tabCashflow(body, params) {
       const t = d.totals;
       $('#kpis').innerHTML = kpiCard(`近 ${d.months} 个月订单额`, fmtWan(t.sales), `采购额 ${fmtWan(t.purchases)}`) + kpiCard('回款', fmtWan(t.receipts), `已付 ${fmtWan(t.paid)} · 净流入 ${fmtWan(t.receipts - t.paid)}`) + kpiCard('未回款计划（应收）', fmtWan(d.open_receivables.amount), `${fmtInt(d.open_receivables.count)} 期`) + kpiCard('未付付款计划（应付）', fmtWan(d.open_payments.rmb), `${fmtInt(d.open_payments.count)} 期 · 未来 12 个月内 ${fmtWan(d.upcoming.reduce((s, u) => s + u.rmb, 0))}`);
       $('#table').innerHTML = `<table><thead><tr><th>月份</th><th class="num">订单额</th><th class="num">单数</th><th class="num">采购额</th><th class="num">采购单</th><th class="num">回款</th><th class="num">已付</th><th class="num">未付计划</th><th class="num">回款 − 已付</th></tr></thead><tbody>
-        ${d.rows.slice().reverse().map((r) => `<tr><td class="nowrap">${r.month}</td><td class="num">${fmtMoney(r.sales)}</td><td class="num">${r.orders}</td><td class="num">${fmtMoney(r.purchases)}</td><td class="num">${r.purchase_orders}</td><td class="num">${fmtMoney(r.receipts)}</td><td class="num">${fmtMoney(r.paid)}</td><td class="num">${r.open ? fmtMoney(r.open) : '<span class="muted">—</span>'}</td><td class="num ${r.receipts - r.paid >= 0 ? 'up' : 'down'}">${fmtMoney(r.receipts - r.paid)}</td></tr>`).join('')}
+        ${d.rows.slice().reverse().map((r) => `<tr><td class="nowrap lead">${r.month}</td><td class="num">${fmtMoney(r.sales)}</td><td class="num">${r.orders}</td><td class="num">${fmtMoney(r.purchases)}</td><td class="num">${r.purchase_orders}</td><td class="num">${fmtMoney(r.receipts)}</td><td class="num">${fmtMoney(r.paid)}</td><td class="num">${r.open ? fmtMoney(r.open) : '<span class="muted">—</span>'}</td><td class="num ${r.receipts - r.paid >= 0 ? 'up' : 'down'}">${fmtMoney(r.receipts - r.paid)}</td></tr>`).join('')}
         <tr class="total"><td>合计</td><td class="num">${fmtMoney(t.sales)}</td><td></td><td class="num">${fmtMoney(t.purchases)}</td><td></td><td class="num">${fmtMoney(t.receipts)}</td><td class="num">${fmtMoney(t.paid)}</td><td class="num">${fmtMoney(t.open)}</td><td class="num">${fmtMoney(t.receipts - t.paid)}</td></tr>
       </tbody></table><p class="note">付款计划里 JPY 单据的汇率字段有的记为 0.71（每 100 日元），折算值会明显偏低，属 CRM 原始数据。</p>`;
     } catch (e) { $('#table').innerHTML = `<div class="error">${esc(e.message)}</div>`; }
@@ -969,7 +1129,7 @@ async function pageContacts(view, params) {
       $('#side').querySelectorAll('a.who-chip').forEach((a) => a.addEventListener('click', () => { $('[name=owner]').value = a.dataset.part; load(1); }));
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 人</p>
         <table><thead><tr><th>姓名</th><th>职务 / 部门</th><th>手机</th><th>电话</th><th>微信 / QQ / 邮箱</th><th>客户</th><th>所有者</th><th>最近联系</th><th class="num">日志</th></tr></thead><tbody>
-        ${res.rows.map((k) => `<tr><td class="nowrap">${esc(k.name)}${k.missing ? ' <span class="tag bad" title="没有任何联系方式">缺</span>' : ''}</td><td class="small">${esc([k.headship, k.department].filter(Boolean).join(' / '))}</td><td class="nowrap">${esc(k.mphone || '')}</td><td class="nowrap">${esc(k.phone || '')}</td><td class="small">${esc([k.weixin, k.qq, k.email].filter(Boolean).join(' / '))}</td><td>${custLink(k.customer)}</td><td class="nowrap">${esc(k.customer.owner || '')}</td><td class="nowrap small">${esc(k.last_contact || '—')}</td><td class="num">${k.actions || ''}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的联系人</td></tr>'}
+        ${res.rows.map((k) => `<tr><td class="nowrap lead">${esc(k.name)}${k.missing ? ' <span class="tag bad" title="没有任何联系方式">缺</span>' : ''}</td><td class="small">${esc([k.headship, k.department].filter(Boolean).join(' / '))}</td><td class="nowrap">${esc(k.mphone || '')}</td><td class="nowrap">${esc(k.phone || '')}</td><td class="small">${esc([k.weixin, k.qq, k.email].filter(Boolean).join(' / '))}</td><td>${custLink(k.customer)}</td><td class="nowrap">${esc(k.customer.owner || '')}</td><td class="nowrap small">${esc(k.last_contact || '—')}</td><td class="num">${k.actions || ''}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的联系人</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       bindLinks(list);
@@ -1036,7 +1196,7 @@ async function openPurchase(id) {
       </div>
       <h3>采购明细 <span class="muted">${d.items.length} 项</span></h3>
       <table><thead><tr><th>编码</th><th>产品</th><th>规格</th><th class="num">数量</th><th class="num">已入库</th><th class="num">单价</th><th class="num">金额</th><th class="num">税率</th><th>备注</th></tr></thead><tbody>
-        ${d.items.map((g) => `<tr><td class="nowrap small">${esc(g.prod)}</td><td>${g.product_id ? `<a data-prod="${g.product_id}">${esc(g.name)}</a>` : esc(g.name)}</td><td class="small">${esc([g.model, g.sku, g.batchnum].filter((x) => x && x !== '-').join(' / '))}</td><td class="num">${fmtInt(g.qty)}${g.unit ? ` <span class="muted small">${esc(g.unit)}</span>` : ''}</td><td class="num">${fmtInt(g.received)}</td><td class="num">${fmtMoney(g.price)}</td><td class="num">${fmtMoney(g.money)}</td><td class="num small">${esc(g.tax_rate || '')}</td><td class="small">${esc(g.memo || '')}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">无明细</td></tr>'}
+        ${d.items.map((g) => `<tr><td class="nowrap small">${esc(g.prod)}</td><td class="lead">${g.product_id ? `<a data-prod="${g.product_id}">${esc(g.name)}</a>` : esc(g.name)}</td><td class="small">${esc([g.model, g.sku, g.batchnum].filter((x) => x && x !== '-').join(' / '))}</td><td class="num">${fmtInt(g.qty)}${g.unit ? ` <span class="muted small">${esc(g.unit)}</span>` : ''}</td><td class="num">${fmtInt(g.received)}</td><td class="num">${fmtMoney(g.price)}</td><td class="num">${fmtMoney(g.money)}</td><td class="num small">${esc(g.tax_rate || '')}</td><td class="small">${esc(g.memo || '')}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">无明细</td></tr>'}
       </tbody></table>
       <h3>付款计划 <span class="muted">${d.plans.length} 期</span></h3>
       ${d.plans.length ? `<table><thead><tr><th>计划日期</th><th class="num">期次</th><th class="num">金额</th><th>状态</th><th>付款方式</th><th>经办</th><th>备注</th></tr></thead><tbody>${d.plans.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td class="num">${esc(p.serial || '')}</td><td class="num">${rmbCell(p)}</td><td>${payTag(p)}</td><td class="small">${esc(p.type_text)}</td><td>${esc(p.who || '')}</td><td class="small">${esc(p.memo || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
@@ -1090,7 +1250,7 @@ async function openOrder(id) {
       ${d.terms && d.terms.length ? `<h3>合同条款与自定义字段 <span class="muted">${d.terms.filter((t) => t.decoded).length ? '' : '选项字典未抓取，显示原始代码'}</span></h3><div class="kv">${d.terms.map((t) => `<div><label title="${esc(t.key)}">${esc(t.name)}</label><span>${esc(t.value)}${t.decoded || !/^[\d,]+$/.test(t.value) ? '' : ' <span class="muted small" title="CRM 里的选项代码，运行 sync.py --dict 抓取字典后显示中文">（代码）</span>'}</span></div>`).join('')}</div>` : ''}
       <h3>产品明细 <span class="muted">${d.goods.length} 项 · 合计 ${fmtMoney(goodsTotal)}</span></h3>
       <table><thead><tr><th>编码</th><th>产品</th><th>规格 / 型号</th><th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th class="num">税率</th><th>备注</th></tr></thead><tbody>
-        ${d.goods.map((g) => `<tr><td class="nowrap small">${esc(g.prod)}</td><td>${g.product_id ? `<a data-prod="${g.product_id}">${esc(g.name)}</a>` : esc(g.name)}</td><td class="small">${esc([g.model, g.sku, g.batchnum].filter((x) => x && x !== '-').join(' / '))}</td><td class="num">${esc(g.amount)}${g.unit ? ` <span class="muted small">${esc(g.unit)}</span>` : ''}</td><td class="num">${fmtMoney(g.unit_price)}</td><td class="num">${fmtMoney(g.sum)}</td><td class="num small">${esc(g.tax_rate || '')}</td><td class="small">${esc(g.memo || '')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">无明细</td></tr>'}
+        ${d.goods.map((g) => `<tr><td class="nowrap small">${esc(g.prod)}</td><td class="lead">${g.product_id ? `<a data-prod="${g.product_id}">${esc(g.name)}</a>` : esc(g.name)}</td><td class="small">${esc([g.model, g.sku, g.batchnum].filter((x) => x && x !== '-').join(' / '))}</td><td class="num">${esc(g.amount)}${g.unit ? ` <span class="muted small">${esc(g.unit)}</span>` : ''}</td><td class="num">${fmtMoney(g.unit_price)}</td><td class="num">${fmtMoney(g.sum)}</td><td class="num small">${esc(g.tax_rate || '')}</td><td class="small">${esc(g.memo || '')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">无明细</td></tr>'}
       </tbody></table>
       <h3>回款记录 <span class="muted">${d.receipts.length} 笔</span></h3>
       ${d.receipts.length ? `<table><thead><tr><th>日期</th><th class="num">金额</th><th>付款方式</th><th>分类</th><th>开票</th><th>业务员</th><th>备注</th></tr></thead><tbody>${d.receipts.map((n) => `<tr><td class="nowrap">${esc(n.date)}</td><td class="num">${fmtMoney(n.amount)}</td><td class="small">${esc(n.type_text)}</td><td class="small">${esc(n.ctype_text)}</td><td class="small">${esc(n.invoice_text)}</td><td>${esc(n.who || '')}</td><td class="small">${esc(n.memo || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
@@ -1172,7 +1332,8 @@ async function loadMeta() {
   try {
     META = await api('/api/meta');
     const stale = META.synced_at && (Date.now() - new Date(META.synced_at.replace(' ', 'T')).getTime()) > 2 * 3600e3;
-    $('#sync').innerHTML = `<span class="dot ${stale ? 'stale' : ''}"></span><span title="${esc(META.tables.map((t) => `${t.dt} ${t.total_rows} ${t.last_status || ''}`).join('\n'))}">数据截至 ${esc(META.synced_at || '未同步')}${stale ? '（超过 2 小时未更新）' : ''}</span>`;
+    const tip = esc(META.tables.map((t) => `${t.dt} ${t.total_rows} ${t.last_status || ''}`).join('\n'));
+    $('#sync').innerHTML = `<span class="dot ${stale ? 'stale' : ''}"></span><span title="${tip}"><span class="wide-only">数据截至 ${esc(META.synced_at || '未同步')}${stale ? '（超过 2 小时未更新）' : ''}</span><span class="narrow-only">${esc((META.synced_at || '未同步').slice(5, 16))}${stale ? ' 待更新' : ''}</span></span>`;
   } catch (e) { $('#sync').innerHTML = `<span class="dot stale"></span><span>${esc(e.message)}</span>`; throw e; }
 }
 loadMeta().then(route).catch((e) => { $('#view').innerHTML = `<div class="error">无法连接前台服务：${esc(e.message)}</div>`; });
