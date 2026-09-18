@@ -42,7 +42,7 @@ from sync.specs import CONTRACT_CUSTOM_FIELDS
 from sync.store import col_name
 from web.auth import AccessControl
 from web.export import EXPORT_MAX, Download, build_export
-from web.reports import PRODUCT_JOIN, ReportQueries
+from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("xtools.web")
@@ -892,7 +892,45 @@ class Query(ReportQueries):
             "type": a.get("type"), "type_text": self.lk.text("action", "type", a.get("type")), "who": self.lk.names_from_codes(a.get("who")),
             "customer": self.lk.customer(a.get("cu_sn")), "contact": a.get("contact_name"), "subject": title,
             "content": text, "chars": len(text), "mentions": a.get("mentions") or [], "order_id": _int(a.get("co_id"), 0) or None,
+            # 客户维度：这是第几次 / 共几次拜访、上一次拜访、该客户历史订单额
+            "visit_no": a.get("visit_no"), "visit_total": a.get("visit_total"), "prev_visit": a.get("prev_visit"),
+            "cust_amount": a.get("cust_amount"), "cust_orders": a.get("cust_orders"),
+            # 联系人的联系方式（缺失时前台标⚠）
+            "contact_phone": (a.get("contact_mphone") or a.get("contact_tel") or "").strip(),
+            "contact_email": (a.get("contact_email") or "").strip(), "contact_weixin": (a.get("contact_weixin") or "").strip(),
         }
+
+    def enrich_action_stats(self, rows: List[Dict[str, Any]]) -> None:
+        """给每条记录补：该客户的第几次 / 共几次拜访、上一次拜访日期、该客户历史订单额（不含意外中止）。"""
+        keys = {r.get("cu_sn") for r in rows if (r.get("cu_sn") or "").strip() not in ("", "[id:0]", "0")}
+        if not keys:
+            return
+        marks = ",".join("?" * len(keys))
+        seq: Dict[Any, Tuple[int, int, Optional[str]]] = {}
+        for r in self.conn.execute(
+                "SELECT id, ROW_NUMBER() OVER (PARTITION BY cu_sn ORDER BY date, id) rn, COUNT(*) OVER (PARTITION BY cu_sn) total, "
+                f"LAG(date) OVER (PARTITION BY cu_sn ORDER BY date, id) prev FROM action WHERE _deleted_at IS NULL AND cu_sn IN ({marks})",
+                list(keys)):
+            seq[r["id"]] = (r["rn"], r["total"], r["prev"])
+        cids = {self.lk.customer_id(k) for k in keys}
+        cids.discard(None)
+        amounts: Dict[int, Tuple[float, int]] = {}
+        if cids:
+            ckeys = [k for cid in cids for k in self.customer_keys(cid)]      # 客户在订单里有 "[id:N]" 与编号两种写法
+            marks2 = ",".join("?" * len(ckeys))
+            for r in self.conn.execute(
+                    f"SELECT {CID_EXPR.format(t='o')} cid, SUM({ORDER_RMB_EXPR}) a, COUNT(*) n FROM contract o "
+                    f"WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.cu_sn IN ({marks2}) GROUP BY cid", ckeys):
+                if r["cid"] is not None:
+                    amounts[r["cid"]] = (r["a"] or 0.0, r["n"] or 0)
+        for r in rows:
+            rn = seq.get(r["id"])
+            if rn:
+                r["visit_no"], r["visit_total"], r["prev_visit"] = rn[0], rn[1], rn[2] or None
+            cid = self.lk.customer_id(r.get("cu_sn"))
+            amt = amounts.get(cid)
+            if amt:
+                r["cust_amount"], r["cust_orders"] = money(amt[0]), amt[1]
 
     def enrich_actions(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """标出记录文字里提到的该客户其他联系人（按 CRM 联系人表匹配；未建档的人名识别不了）。"""
@@ -949,9 +987,11 @@ class Query(ReportQueries):
         by_who = [{"who": self.lk.user_name(k), "part": k, "count": v[0], "chars": v[1]} for k, v in sorted(who_counts.items(), key=lambda kv: -kv[1][0])[:20]]
         # 日期录错成未来（如 2224-06-12）的记录排到正常记录之后，不再顶在最新一条前面
         rows = self.enrich_actions(self.rows(
-            f"SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER){where} "
+            "SELECT a.*, k.name AS contact_name, k.mphone AS contact_mphone, k.phone AS contact_tel, k.email AS contact_email, k.weixin AS contact_weixin "
+            f"FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER){where} "
             "ORDER BY (CASE WHEN a.date > ? THEN 1 ELSE 0 END), a.date DESC, a.id DESC LIMIT ? OFFSET ?",
             [*args, self.today.isoformat(), size, offset]))
+        self.enrich_action_stats(rows)
         return {"total": total, "page": page, "size": size, "by_type": by_type, "by_day": by_day, "by_who": by_who, "rows": [self.action_row(a) for a in rows]}
 
 
