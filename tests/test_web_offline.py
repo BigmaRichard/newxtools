@@ -24,26 +24,48 @@ LONG = "上门拜访：老客户-终端-研创\n   上门拜访纯化组长张�
 
 
 def seed(store: Store) -> None:
+    y = str(THIS_YEAR)
     users = [
         {"id": "1", "user": "boss", "part": "B1", "name": "boss", "status": "0", "type": "0", "isadmin": "1"},
         {"id": "2", "user": "m9", "part": "M9", "name": "王勇尊", "status": "0", "type": "0", "isadmin": "0"},
         {"id": "3", "user": "m23", "part": "M23", "name": "李勇刚(离职)", "status": "1", "type": "0", "isadmin": "0"},
     ]
     customers = [
-        {"id": "1", "sn": "1302", "cu_name": "广州研创生物技术发展有限公司", "m_name": "研创", "life": "3", "type": "3", "cu_status": "2", "owner": "M9", "city": "广州市", "creatdate": "2013-11-01", "moddate": "2026-01-01",
+        {"id": "1", "sn": "1302", "cu_name": "广州研创生物技术发展有限公司", "m_name": "研创", "life": "3", "type": "3", "cu_status": "2", "owner": "M9", "city": "广州市", "state": "6", "district": "", "creatdate": "2013-11-01", "moddate": "2026-01-01",
          "contact": [{"id": "101", "name": "张三", "headship": "采购", "mphone": "13800000001"}, {"id": "102", "name": "付玉清", "headship": "", "mphone": ""}, {"id": "103", "name": "金舫", "headship": "", "mphone": ""}]},
-        {"id": "2", "sn": "", "cu_name": "贵州医科大学-药学院-钱星凯", "m_name": "", "life": "2", "type": "2", "cu_status": "1", "owner": "M23", "city": "贵阳市", "creatdate": "2025-05-01", "moddate": "2026-09-01", "contact": []},
-        {"id": "3", "sn": "", "cu_name": "无订单客户", "m_name": "", "life": "1", "type": "1", "cu_status": "1", "owner": "M9", "city": "", "creatdate": "2026-09-01", "moddate": "2026-09-01", "contact": []},
+        {"id": "2", "sn": "", "cu_name": "贵州医科大学-药学院-钱星凯", "m_name": "", "life": "2", "type": "2", "cu_status": "1", "owner": "M23", "city": "贵阳市", "state": "29", "district": "", "creatdate": "2025-05-01", "moddate": "2026-09-01", "contact": []},
+        {"id": "3", "sn": "", "cu_name": "供应商A（无订单客户）", "m_name": "", "life": "1", "type": "1", "cu_status": "1", "owner": "M9", "city": "", "state": "0", "district": "", "creatdate": "2026-09-01", "moddate": "2026-09-01",
+         "contact": [{"id": "301", "name": "供应商联系人", "headship": "", "mphone": "", "phone": "", "weixin": "", "qq": "", "email": ""}]},
     ]
-    products = [{"id": "1", "sn": "08086-31", "name": "πNAP Packed Column 4.6mmI.D.x250mm", "model": "-", "unit": "支", "price": "3000.0000", "status": "正常", "class": "色谱柱", "moddate": "2026-01-01"}]
-    y = str(THIS_YEAR)
+    products = [
+        {"id": "1", "sn": "08086-31", "name": "πNAP Packed Column 4.6mmI.D.x250mm", "model": "-", "unit": "支", "price": "3000.0000", "status": "正常", "class": "色谱柱", "lnum": "5.000", "ldown": "20.000", "moddate": "2026-01-01"},
+        {"id": "2", "sn": "", "name": "无编号产品（明细里以 [id:2] 引用）", "model": "", "unit": "桶", "price": "0.0000", "status": "正常", "class": "制备色谱填料", "lnum": "0.000", "ldown": "0.000", "moddate": "2026-01-01"},
+        {"id": "3", "sn": "SLOW-1", "name": "滞销品", "model": "", "unit": "支", "price": "100.0000", "status": "正常", "class": "色谱柱", "lnum": "9.000", "ldown": "0.000", "moddate": "2026-01-01"},
+    ]
+    # 产品类别树（csstree）：根 → 大类 → 分类；产品表 class 存的是分类标题
+    csstree = [{"id": "1", "tid": "1", "title": "产品类别", "upid": "0", "status": "1"}, {"id": "2", "tid": "1", "title": "1.色谱柱", "upid": "1", "status": "1"},
+               {"id": "3", "tid": "1", "title": "2.色谱介质", "upid": "1", "status": "1"}, {"id": "7", "tid": "1", "title": "色谱柱", "upid": "2", "status": "1"},
+               {"id": "11", "tid": "1", "title": "制备色谱填料", "upid": "3", "status": "1"}]
+    purchases = [
+        {"id": "1", "No.": f"CGMW{y}0901001", "title": "供应商A：填料", "cu_sn": "[id:0]", "cu_id": "3", "type": "1", "status0": "1", "status": "3", "money": "1000000.00", "amount_before_tax": "884955.75", "backsum": "0.00",
+         "who": "肖婷姣", "date": f"{y}-09-01", "money_type": "JPY", "money_rate": "5.0", "confirm": "2", "lib": "7", "memo": "",
+         "puritem": [{"id": "1", "prod": "[id:2]", "prod_name": "无编号产品", "num": "10.000", "price": "100000.0000", "money": "1000000.00", "backnum": "10.000", "tax_rate": "0"}]},
+        {"id": "2", "No.": f"CGMW{y}0902002", "title": "供应商A：色谱柱", "cu_sn": "[id:0]", "cu_id": "3", "type": "2", "status0": "1", "status": "0", "money": "1600.00", "amount_before_tax": "1415.93", "backsum": "1600.00",
+         "who": "鲍晓星", "date": f"{y}-09-02", "money_type": "RMB", "money_rate": "100", "confirm": "2", "lib": "7", "memo": "",
+         "puritem": [{"id": "2", "prod": "08086-31", "prod_name": "πNAP", "num": "1.000", "price": "1600.0000", "money": "1600.00", "backnum": "0.000", "tax_rate": "13.00"}]},
+    ]
+    pay_plans = [
+        {"id": "1", "date": f"{y}-10-01", "serial": "1", "money_type": "JPY", "money_rate": "5.0", "money": "1000000.00", "who": "黄晓霞", "status": "0", "pu_id": "1", "cu_sn": "[id:3]", "ctype": "0", "type": "5", "owner": "黄晓霞", "memo": ""},
+        {"id": "2", "date": f"{THIS_YEAR - 1}-12-01", "serial": "1", "money_type": "RMB", "money_rate": "100", "money": "1600.00", "who": "鲍晓星", "status": "1", "pu_id": "2", "cu_sn": "[id:3]", "ctype": "0", "type": "5", "owner": "鲍晓星", "memo": ""},
+        {"id": "3", "date": f"{THIS_YEAR - 1}-01-01", "serial": "1", "money_type": "RMB", "money_rate": "100", "money": "500.00", "who": "鲍晓星", "status": "0", "pu_id": "2", "cu_sn": "[id:3]", "ctype": "0", "type": "5", "owner": "鲍晓星", "memo": "逾期未付"},
+    ]
     contracts = [
         {"id": "10", "No.": f"mw{y}0101010", "subject": "旧单（用 sn 关联客户）", "cu_sn": "1302", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "1000.00", "who": "王勇尊",
          "date": f"{THIS_YEAR - 1}-06-01", "end_date": f"{THIS_YEAR - 1}-06-01", "money_type": "RMB", "goods": [{"id": "1", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": "1000", "sum": "1000.00"}]},
         {"id": "11", "No.": f"mw{y}0301011", "subject": "今年订单一", "cu_sn": "[id:1]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "2000.00", "who": "王勇尊",
-         "date": f"{y}-03-01", "end_date": f"{y}-03-01", "money_type": "RMB", "j1": "含税", "goods": [{"id": "2", "prod": "08086-31", "prod_name": "πNAP", "amount": "2.000", "un_price": "1000", "sum": "2000.00"}]},
+         "date": f"{y}-03-01", "end_date": f"{y}-03-01", "money_type": "RMB", "j1": "含税", "j7": "5", "j8": "2", "j28": "a@b.com", "goods": [{"id": "2", "prod": "08086-31", "prod_name": "πNAP", "amount": "2.000", "un_price": "1000", "sum": "2000.00"}]},
         {"id": "12", "No.": f"mw{y}0901012", "subject": "执行中订单", "cu_sn": "[id:2]", "type": "2", "status": "1", "confirm": "2", "st_send": "1", "sum": "500.00", "who": "李勇刚(离职)",
-         "date": TODAY.isoformat(), "end_date": TODAY.isoformat(), "money_type": "RMB", "goods": []},
+         "date": TODAY.isoformat(), "end_date": TODAY.isoformat(), "money_type": "RMB", "j7": "10", "goods": [{"id": "3", "prod": "[id:2]", "prod_name": "无编号产品", "amount": "1.000", "un_price": "500", "sum": "500.00"}]},
         {"id": "13", "No.": f"mw{y}0501013", "subject": "意外中止", "cu_sn": "[id:2]", "type": "1", "status": "3", "confirm": "2", "st_send": "0", "sum": "9999.00", "who": "王勇尊",
          "date": f"{y}-05-01", "end_date": f"{y}-05-01", "money_type": "RMB", "goods": []},
     ]
@@ -66,8 +88,8 @@ def seed(store: Store) -> None:
         {"id": "5", "cale": "4", "subject": "没有日期的待办", "content": "", "type": "", "cu_sn": "[id:1]", "con_id": "", "who": ",M9,", "date": "", "endate": ""},
         {"id": "6", "cale": "3", "subject": LONG[:128], "content": LONG, "type": "2", "cu_sn": "[id:1]", "con_id": "101", "who": ",M9,", "date": "2020-06-01", "endate": "2020-06-01"},
     ]
-    for dt_name, rows in [("user", users), ("customer", customers), ("product", products), ("contract", contracts), ("gathering_note", notes), ("gathering", plans),
-                          ("sendgoods", sends), ("libout", libouts), ("action", actions)]:
+    for dt_name, rows in [("user", users), ("csstree", csstree), ("customer", customers), ("product", products), ("contract", contracts), ("gathering_note", notes), ("gathering", plans),
+                          ("sendgoods", sends), ("libout", libouts), ("action", actions), ("purchase", purchases), ("pay_plan", pay_plans)]:
         store.upsert_raw(dt_name, rows)
         store.upsert_normalized(SPEC_BY_DT[dt_name], rows)
         store.set_state(dt_name, lastid=len(rows), last_full_at="2026-09-18 05:36:00", last_run_at="2026-09-18 05:36:34", last_status="ok", last_rows=len(rows))
@@ -76,7 +98,10 @@ def seed(store: Store) -> None:
     store.save_dictionary("gathering", "status", [{"key": "1", "value": "已回", "flag": "USE"}, {"key": "2", "value": "未回", "flag": "Default"}, {"key": "4", "value": "部分回款", "flag": "USE"}])
     store.save_dictionary("action", "type", [{"key": "1", "value": "电话", "flag": "USE"}, {"key": "2", "value": "市内拜访", "flag": "USE"}])
     store.save_dictionary("customer", "life", [{"key": "1", "value": "潜在", "flag": "Default"}, {"key": "2", "value": "签约", "flag": "USE"}, {"key": "3", "value": "重复购买", "flag": "USE"}])
-    store.save_field_names("contract", {"j1": "含税方式"})
+    store.save_dictionary("contract", "j7", [{"key": "5", "value": "增值税专用发票", "flag": "USE"}, {"key": "10", "value": "增值税普通发票", "flag": "USE"}])
+    store.save_dictionary("contract", "j8", [{"key": "1", "value": "款到发货", "flag": "USE"}, {"key": "2", "value": "月结", "flag": "USE"}])
+    store.save_dictionary("purchase", "type", [{"key": "1", "value": "大宗采购", "flag": "USE"}, {"key": "2", "value": "零星采购", "flag": "USE"}])
+    store.save_field_names("contract", {"j1": "含税方式", "j7": "一、发票类型", "j8": "二、付款方式", "j28": "收电子发票邮箱"})
 
 
 @pytest.fixture
@@ -163,8 +188,9 @@ def test_order_detail_joins_children(q):
     assert d["plans"][0]["status_text"] == "部分回款" and d["plans"][0]["overdue_days"] > 0
     assert d["shipments"][0]["items"] == 1 and d["libouts"][0]["who"] == "王勇尊"
     assert d["actions"][0]["content"] == "上门拜访"
-    assert {x["key"]: x for x in d["extras"]}["j1"]["name"] == "含税方式"
-    assert all(x["key"] != "No." for x in d["extras"])
+    terms = {x["key"]: x for x in d["terms"]}  # 0.5 起自定义字段 j* 单列为“合同条款”，其余原始字段仍在 extras
+    assert terms["j1"]["name"] == "含税方式" and terms["j1"]["value"] == "含税" and terms["j1"]["decoded"] is False
+    assert all(x["key"] not in ("No.", "j1") for x in d["extras"])
     assert q().order_detail(999) is None
 
 
@@ -176,7 +202,7 @@ def test_customers_list_aggregates_both_key_forms(q):
     assert top["last_order"] == f"{THIS_YEAR}-03-01"
     assert q(q="医科").customers()["rows"][0]["id"] == 2
     assert q(owner="M23").customers()["total"] == 1
-    assert q(life="1").customers()["rows"][0]["name"] == "无订单客户"
+    assert q(life="1").customers()["rows"][0]["name"] == "供应商A（无订单客户）"
     d = q().customer_detail(1)
     assert d["customer"]["owner"] == "王勇尊" and len(d["contacts"]) == 3
     assert sorted(o["id"] for o in d["orders"]) == [10, 11]
@@ -266,3 +292,194 @@ def test_action_long_record_dedupes_subject_and_marks_mentions(q):
     assert row2["subject"] == "" and row2["content"] == "电话沟通详情"
     made = q().action_row({"id": 9, "subject": "回访", "content": "客户反馈良好", "who": ",M9,", "cu_sn": "[id:1]"})
     assert made["subject"] == "回访" and made["content"] == "客户反馈良好"
+
+
+# ---------------------------------------------------------------------- 0.5：分析页与导出
+def test_meta_includes_product_tree_states_and_order_terms(q):
+    meta = q().meta()
+    assert meta["product_groups"] == ["1.色谱柱", "2.色谱介质"]
+    assert {c["title"]: c["group"] for c in meta["product_classes"]} == {"色谱柱": "1.色谱柱", "制备色谱填料": "2.色谱介质"}
+    states = {s["key"]: s["name"] for s in meta["states"]}
+    assert states["6"] == "广东" and states["29"] == "贵州" and states["0"] == "（未填地区）"  # 字典未抓取时按城市推断省份
+    terms = {t["key"]: t for t in meta["order_terms"]}
+    assert terms["j7"]["has_dict"] is True and terms["j7"]["name"] == "一、发票类型" and terms["j9"]["has_dict"] is False
+    assert meta["salespeople"][0]["part"] == "M9"
+
+
+def test_sales_by_dimension_and_years(q):
+    res = q(by="who", years=f"{THIS_YEAR},{THIS_YEAR - 1}").sales()
+    assert res["years"] == [THIS_YEAR, THIS_YEAR - 1] and res["line_mode"] is False
+    rows = {r["key"]: r for r in res["rows"]}
+    assert rows["王勇尊"]["cells"][str(THIS_YEAR)]["amount"] == 2000.0 and rows["王勇尊"]["cells"][str(THIS_YEAR - 1)]["amount"] == 1000.0  # 意外中止的 9999 不计
+    assert rows["王勇尊"]["yoy"] == 100.0
+    assert res["totals"][str(THIS_YEAR)] == {"count": 2, "amount": 2500.0, "qty": 0.0}
+    assert len(res["monthly"]) == 12 and res["monthly"][2]["cells"][str(THIS_YEAR)]["amount"] == 2000.0  # 3 月
+    # 客户维度把 "[id:1]" 与编号 "1302" 两种写法归并为同一客户
+    cust = {r["key"]: r for r in q(by="customer", years=f"{THIS_YEAR},{THIS_YEAR - 1}").sales()["rows"]}
+    assert cust[1]["total"] == 3000.0 and cust[1]["count"] == 2 and cust[1]["name"].startswith("广州研创")
+    # 地区 / 类型 / 月份
+    region = {r["key"]: r for r in q(by="region").sales()["rows"]}
+    assert region["6"]["name"] == "广东" and region["29"]["total"] == 500.0
+    assert q(by="type").sales()["rows"][0]["key"] in ("1", "2")
+    month = q(by="month").sales()
+    assert [r["key"] for r in month["rows"]][:1] == ["03"] or month["rows"][0]["key"] <= "09"
+    assert q(by="who", ytd="1").sales()["ytd"] is True
+
+
+def test_sales_line_mode_products_classes_groups_and_filters(q):
+    prod = q(by="product").sales()
+    assert prod["line_mode"] is True
+    rows = {r["name"]: r for r in prod["rows"]}
+    assert rows["πNAP Packed Column 4.6mmI.D.x250mm"]["sn"] == "08086-31" and rows["πNAP Packed Column 4.6mmI.D.x250mm"]["total"] == 3000.0
+    assert rows["无编号产品（明细里以 [id:2] 引用）"]["id"] == 2 and rows["无编号产品（明细里以 [id:2] 引用）"]["cells"][str(THIS_YEAR)]["qty"] == 1.0  # "[id:N]" 引用按 id 关联
+    cls = {r["key"]: r for r in q(by="class").sales()["rows"]}
+    assert cls["色谱柱"]["sub"] == "1.色谱柱" and cls["制备色谱填料"]["total"] == 500.0
+    grp = {r["key"]: r for r in q(by="group").sales()["rows"]}
+    assert set(grp) == {"1.色谱柱", "2.色谱介质"}
+    # 产品条件下钻到业务员：只剩买过 πNAP 的王勇尊；分类 / 大类条件同理
+    who = q(by="who", prod="08086-31").sales()
+    assert who["line_mode"] is True and [r["key"] for r in who["rows"]] == ["王勇尊"] and who["filters"]["prod"].startswith("πNAP")
+    assert [r["key"] for r in q(by="who", group="2.色谱介质").sales()["rows"]] == ["李勇刚(离职)"]
+    assert [(r["key"], r["sn"]) for r in q(by="product", who="M9").sales()["rows"]] == [(1, "08086-31")]
+    assert q(by="product", state="29").sales()["rows"][0]["id"] == 2
+
+
+def test_customer_analysis_tiers_new_retention_churn(q):
+    d = q().customer_analysis()
+    k = d["kpi"]
+    assert k["active"] == 2 and k["prev_active"] == 1 and k["amount"] == 2500.0 and k["prev_amount"] == 1000.0
+    assert k["new"] == 1 and k["retained"] == 1 and k["retention_rate"] == 100.0 and k["repeat"] == 0
+    tiers = {t["tier"]: t for t in d["tiers"]}
+    assert tiers["A"]["count"] == 1 and tiers["A"]["amount"] == 2000.0 and tiers["B"]["count"] + tiers["C"]["count"] == 1
+    assert d["tier_rows"][0]["tier"] == "A" and d["tier_rows"][0]["id"] == 1 and d["tier_rows"][0]["prev_amount"] == 1000.0
+    assert d["new_rows"][0]["id"] == 2 and d["new_rows"][0]["first_date"] == TODAY.isoformat()
+    assert sum(m["count"] for m in d["new_by_month"]) == 1
+    idle = (TODAY - TODAY.replace(month=3, day=1)).days  # 研创最近一单在今年 3 月 1 日
+    expect_bucket = "6-12" if 182 <= idle < 365 else None
+    buckets = {b["key"]: b["count"] for b in d["churn"]["buckets"]}
+    assert sum(buckets.values()) == (1 if expect_bucket else 0) and (not expect_bucket or buckets[expect_bucket] == 1)
+    if expect_bucket:
+        assert d["churn"]["rows"][0]["id"] == 1 and d["churn"]["rows"][0]["idle_days"] == idle and d["churn"]["rows"][0]["amount"] == 3000.0
+    owners = {o["part"]: o for o in d["by_owner"]}
+    assert owners["M9"]["customers"] == 2 and owners["M9"]["active"] == 1 and owners["M23"]["new"] == 1
+    assert q(owner="M23").customer_analysis()["kpi"]["active"] == 1
+    assert q(year=str(THIS_YEAR - 1)).customer_analysis()["kpi"]["active"] == 1
+
+
+def test_salesperson_dashboard(q):
+    d = q(who="M9").salesperson()
+    assert d["user"]["name"] == "王勇尊" and d["year"] == THIS_YEAR
+    k = d["kpi"]
+    assert k["orders"]["amount"] == 2000.0 and k["orders_prev"]["amount"] == 1000.0 and k["receipts"]["amount"] == 1500.0
+    assert k["open_plans"]["count"] == 1 and k["overdue_plans"]["count"] == 1 and k["customers_owned"] == 2 and k["customers_active"] == 1
+    assert k["actions"] >= 1 and k["last_action"] == TODAY.isoformat()  # 2224 年的异常日期不算“最近”
+    assert d["rank"] == 1 and d["rank_of"] == 2
+    assert d["monthly"][2]["orders"]["amount"] == 2000.0 and d["top_customers"][0]["customer"]["id"] == 1 and d["top_products"][0]["sn"] == "08086-31"
+    assert len(d["open_plans"]) == 1 and d["recent_orders"][0]["no"].endswith("013")  # 最近订单含意外中止的单
+    assert q(who="王勇尊").salesperson()["user"]["part"] == "M9"  # 按姓名也能找到
+    assert q().salesperson() is None
+
+
+def test_products_list_summary_and_detail(q):
+    res = q(months="0").products()
+    assert res["total"] == 3 and res["window"] == "全部"
+    rows = {r["sn"]: r for r in res["rows"]}
+    assert rows["08086-31"]["sales_amount"] == 3000.0 and rows["08086-31"]["sales_qty"] == 3.0 and rows["08086-31"]["stock_low"] is True and rows["08086-31"]["group"] == "1.色谱柱"
+    assert rows[""]["id"] == 2 and rows[""]["sales_amount"] == 500.0  # 无编号产品按 [id:2] 关联到销售
+    assert res["summary"]["low"] == 1 and res["summary"]["unsold"] == 1 and res["summary"]["sold"] == 2
+    assert [g["group"] for g in res["by_group"]][0] == "1.色谱柱"
+    assert q(months="0", stock="unsold").products()["rows"][0]["sn"] == "SLOW-1"
+    assert q(months="0", group="2.色谱介质").products()["total"] == 1
+    assert q(months="0", q="πNAP").products()["total"] == 1
+    d = q(id="2", months="0").product_detail()
+    assert d["product"]["name"].startswith("无编号") and d["yearly"][0]["amount"] == 500.0 and d["lines"][0]["order_no"].endswith("012")
+    assert d["purchases"][0]["no"].endswith("001") and d["purchases"][0]["money_type"] == "JPY"
+    d2 = q(sn="08086-31", months="0").product_detail()
+    assert d2["top_customers"][0]["customer"]["id"] == 1 and len(d2["monthly"]) == 24 and d2["libouts"][0]["qty"] == 2.0
+    assert q(sn="nope").product_detail() is None
+
+
+def test_purchases_pay_plans_and_currency_conversion(q):
+    res = q().purchases()
+    assert res["total"] == 2 and res["rmb"] == 51600.0  # 1,000,000 JPY × 5.0 / 100 + 1,600 RMB
+    row = {r["no"][-3:]: r for r in res["rows"]}
+    assert row["001"]["supplier"]["id"] == 3 and row["001"]["rmb"] == 50000.0 and row["001"]["status_text"] == "全部入库" and row["001"]["type_text"] == "大宗采购"
+    assert row["002"]["status_text"] == "待入库" and row["002"]["paid"] == 1600.0
+    assert {c["money_type"]: c["rmb"] for c in res["by_currency"]} == {"JPY": 50000.0, "RMB": 1600.0}
+    assert res["by_supplier"][0]["supplier"]["id"] == 3 and res["by_supplier"][0]["count"] == 2
+    assert q(supplier_id="3", money_type="RMB").purchases()["total"] == 1 and q(q="供应商A").purchases()["total"] == 2
+    d = q().purchase_detail(1)
+    assert d["items"][0]["product_id"] == 2 and d["items"][0]["qty"] == 10.0 and d["plans"][0]["rmb"] == 50000.0 and d["plans"][0]["status_text"] == "未付"
+    assert q().purchase_detail(99) is None
+    plans = q().pay_plans()  # 缺省只看未付
+    assert plans["total"] == 2 and plans["overdue"]["count"] == 1 and plans["overdue"]["rmb"] == 500.0
+    overdue = q(status="overdue").pay_plans()["rows"]
+    assert len(overdue) == 1 and overdue[0]["overdue_days"] > 0 and overdue[0]["purchase_no"].endswith("002")
+    assert q(status="done").pay_plans()["total"] == 1 and q(status="all").pay_plans()["total"] == 3
+
+
+def test_cashflow_monthly_series(q):
+    d = q(months="24").cashflow()
+    assert len(d["rows"]) == 24 and d["rows"][-1]["month"] == TODAY.strftime("%Y-%m")
+    this_month = d["rows"][-1]
+    assert this_month["purchases"] == 51600.0 and this_month["sales"] == 500.0 and this_month["orders"] == 1
+    assert d["open_payments"]["count"] == 2 and d["open_receivables"]["count"] == 2
+    assert d["totals"]["receipts"] >= 1500.0 and d["upcoming"][0]["rmb"] == 50000.0
+
+
+def test_contacts_search_missing_and_last_contact(q):
+    res = q().contacts()
+    assert res["total"] == 4 and res["missing"] == 3 and res["never_contacted"] == 3
+    rows = {k["name"]: k for k in res["rows"]}
+    assert rows["张三"]["missing"] is False and rows["张三"]["last_contact"] == TODAY.isoformat() and rows["张三"]["actions"] == 2
+    assert rows["付玉清"]["missing"] is True and rows["付玉清"]["customer"]["owner"] == "王勇尊"
+    assert q(missing="1").contacts()["total"] == 3 and q(q="138").contacts()["rows"][0]["name"] == "张三"
+    assert q(owner="M9", missing="1").contacts()["by_owner"][0]["missing"] == 3
+    assert q(sort="last").contacts()["rows"][0]["name"] == "张三"
+
+
+def test_order_custom_fields_decoded_and_filterable(q):
+    rows = {o["id"]: o for o in q().orders()["rows"]}
+    assert rows[11]["invoice_type"] == "增值税专用发票" and rows[11]["pay_terms"] == "月结" and rows[11]["lead_time"] == ""  # j9 没有字典 → 不显示代码
+    assert rows[12]["invoice_type"] == "增值税普通发票"
+    assert [o["id"] for o in q(j7="5").orders()["rows"]] == [11]
+    assert [o["id"] for o in q(prod="08086-31").orders()["rows"]] == [11, 10]
+    assert [o["id"] for o in q(**{"class": "制备色谱填料"}).orders()["rows"]] == [12]
+    assert [o["id"] for o in q(group="1.色谱柱", month=f"{THIS_YEAR}-03").orders()["rows"]] == [11]
+    assert [o["id"] for o in q(state="29").orders()["rows"]] == [12, 13]
+    terms = {t["key"]: t for t in q().order_detail(11)["terms"]}
+    assert terms["j7"] == {"key": "j7", "name": "一、发票类型", "value": "增值税专用发票", "raw": "5", "decoded": True}
+    assert terms["j28"]["value"] == "a@b.com" and terms["j28"]["decoded"] is False
+    assert [t["key"] for t in q().order_detail(11)["terms"]] == ["j7", "j8", "j1", "j28"]  # 有字典的在前
+    assert q().order_detail(11)["goods"][0]["product_id"] == 1
+
+
+def test_export_xlsx_over_http(db):
+    import io
+    import zipfile
+
+    server = make_server(db, "127.0.0.1", 0)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{port}"
+        resp = urllib.request.urlopen(base + "/api/export/orders?" + urllib.parse.urlencode({"who": "M9"}))
+        assert resp.headers["Content-Type"].startswith("application/vnd.openxmlformats") and "filename*=UTF-8''" in resp.headers["Content-Disposition"]
+        z = zipfile.ZipFile(io.BytesIO(resp.read()))
+        sheet = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        assert "<t>日期</t>" in sheet and "<t>发票类型</t>" in sheet and "增值税专用发票" in sheet and "意外中止" in sheet
+        assert sheet.count("<row ") == 1 + 3  # 表头 + 王勇尊的 3 单
+        for kind in ("customers", "receivables", "receipts", "actions", "products", "purchases", "pay_plans", "contacts", "tiers", "new_customers", "churn", "lost"):
+            data = urllib.request.urlopen(f"{base}/api/export/{kind}").read()
+            assert zipfile.ZipFile(io.BytesIO(data)).testzip() is None, kind
+        sales = zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(base + "/api/export/sales?by=product").read())).read("xl/worksheets/sheet1.xml").decode()
+        assert f"<t>{THIS_YEAR} 数量</t>" in sales and "πNAP" in sales
+        with pytest.raises(urllib.error.HTTPError) as info:
+            urllib.request.urlopen(base + "/api/export/nope")
+        assert info.value.code == 404
+        # 导出不受列表分页 500 行上限约束（page/size 被忽略）
+        big = urllib.request.urlopen(base + "/api/export/actions?size=1&page=2").read()
+        assert zipfile.ZipFile(io.BytesIO(big)).read("xl/worksheets/sheet1.xml").decode().count("<row ") == 1 + 6
+    finally:
+        server.shutdown()
+        server.server_close()

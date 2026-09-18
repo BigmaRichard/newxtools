@@ -22,7 +22,10 @@ newxtools/
 │   ├── store.py              SQLite：原始 JSON 表、规范化表、游标、字典、报表视图
 │   └── engine.py             全量 / 增量 / 定期重拉 / 删除检测 / 字典刷新
 ├── web/                      本地前台（只读 HTTP 服务 + 单页界面）
-│   ├── server.py             JSON API：总览 / 订单 / 客户 / 应收回款 / 工作日志
+│   ├── server.py             JSON API：总览 / 订单 / 客户 / 应收回款 / 工作日志；路由与导出下载
+│   ├── reports.py            0.5 分析接口：销售分析、客户分析、业务员看板、产品与库存、采购与付款、现金流、联系人
+│   ├── export.py             导出 Excel：各列表的列定义与取数
+│   ├── xlsx.py               纯标准库 .xlsx 写入器
 │   ├── names.py              行动记录正文里的人名抽取（规则法，jieba 可选）
 │   └── static/index.html     页面（无外部依赖）
 ├── scripts/
@@ -38,7 +41,8 @@ newxtools/
 │   ├── test_sign.py          签名离线测试（文档示例）
 │   ├── test_client_offline.py 登录 / 重登 / 限频 / 分页 / 错误映射（假服务器）
 │   ├── test_sync_offline.py  镜像：全量 / 增量 / 断点续拉 / 删除检测 / 视图 / 字典（内存假数据）
-│   ├── test_web_offline.py   前台 API（小型镜像库）
+│   ├── test_web_offline.py   前台 API（小型镜像库，含 0.5 分析接口与导出）
+│   ├── test_xlsx.py          .xlsx 写入器
 │   └── test_names.py         人名抽取规则
 └── docs/
     ├── 00_文档版本变更记录.md      文档各版本差异与仓库对应调整

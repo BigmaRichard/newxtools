@@ -69,7 +69,9 @@ TABLE_SPECS: List[TableSpec] = [
     TableSpec("contract", "contract", "lastid",
               ["No.", "subject", "cu_sn", "cu_no", "type", "one_select", "status", "confirm", "st_send", "sum", "who", "memo",
                "name", "tel", "addr", "mphone", "date", "end_date", "money_type", "money_rate", "pay_mode", "payment",
-               "cu_sub", "prj_id", "op_id", "org_id"],
+               "cu_sub", "prj_id", "op_id", "org_id",
+               # 正式公司启用的自定义字段（选项代码，字典在 DICT_FIELDS）：发票类型 / 付款方式 / 货期 / 是否试用 / 是否首单签约 / 提成方案
+               "j7", "j8", "j9", "j21", "j26", "j33"],
               extend=1,
               children=[ChildSpec("goods", "contract_goods", "contract_id",
                                   ["prod", "prod_name", "model", "sku", "batchnum", "amount", "un_price", "sum", "tax_money", "tax_rate", "zk", "memo"])],
@@ -92,11 +94,11 @@ TABLE_SPECS: List[TableSpec] = [
               children=[ChildSpec("rtnitem", "order_return_items", "return_id", ["pid", "rnum", "rprice", "rsum", "nin", "reason", "memo"])],
               full_every_hours=24, note="订单退货单"),
     TableSpec("purchase", "purchase", "lastid",
-              ["No.", "title", "cu_sn", "type", "status0", "status", "money", "amount_before_tax", "backsum", "return_yn", "lib",
+              ["No.", "title", "cu_sn", "cu_id", "type", "status0", "status", "money", "amount_before_tax", "backsum", "return_yn", "lib",
                "who", "memo", "eta", "confirm", "ref_cu_id", "ref_co_id", "prj_id", "sendcode", "is_zhifa", "date", "money_type", "money_rate"],
               children=[ChildSpec("puritem", "purchase_items", "purchase_id",
                                   ["prod", "prod_name", "model", "sku", "batchnum", "num", "price", "money", "backnum", "tax_rate", "tax_money", "un_price_tax", "memo"])],
-              full_every_hours=24, note="采购单"),
+              full_every_hours=24, note="采购单（正式公司 cu_sn 均为 [id:0]，供应商在 cu_id）"),
     TableSpec("purreturn", "purchase_return", "lastid",
               ["subject", "cu_sn", "pu_id", "status", "ra_who", "ra_date", "lib", "date", "who", "who_name", "return_no",
                "st_libout", "st_hk", "hk_sum", "money", "money_type", "money_rate", "one_select", "memo"],
@@ -129,17 +131,21 @@ TABLE_SPECS: List[TableSpec] = [
 
 SPEC_BY_DT: Dict[str, TableSpec] = {s.dt: s for s in TABLE_SPECS}
 
-# 字典：与 scripts/dump_dictionary.py 保持一致
+# 字典：与 scripts/dump_dictionary.py 保持一致。CRM 未配置选项的字段返回"读取异常"，记为 undefined，不算失败。
+# contract.j* 为正式公司启用的订单自定义字段（发票类型、付款方式、货期、是否试用、试用后购买意向、企业微信、
+# 首单签约、供货方、提成方案等，值为选项代码；j11～j14、j20 为多选 ",1,2," 形式）。
+CONTRACT_CUSTOM_FIELDS = ["j7", "j8", "j9", "j10", "j11", "j12", "j13", "j14", "j15", "j20", "j21", "j22", "j23", "j26", "j32", "j33"]
 DICT_FIELDS: Dict[str, List[str]] = {
-    "customer": ["cu_status", "type", "cu_from", "employees", "industry", "life", "rala_rating", "country"],
-    "contract": ["type", "status", "pay_mode", "payment", "one_select", "confirm", "st_send"],
+    "customer": ["cu_status", "type", "cu_from", "employees", "industry", "life", "rala_rating", "country", "state"],
+    "contract": ["type", "status", "pay_mode", "payment", "one_select", "confirm", "st_send", *CONTRACT_CUSTOM_FIELDS],
     "product": ["unit", "pow_type", "class", "ptype", "status", "pmode"],
     "gathering_note": ["type", "ctype", "invoice"],
     "gathering": ["status", "type"],
     "bill": ["type"],
     "sendgoods": ["sntype", "package_type", "costtype", "status", "one_select"],
     "action": ["type", "cale"],
-    "purchase": ["type", "status0"],
+    "purchase": ["type", "status0", "status", "confirm"],
+    "pay_plan": ["status", "type", "ctype"],
     "contact": ["contype"],
     "libreturn": ["one_select"],
     "purreturn": ["one_select"],

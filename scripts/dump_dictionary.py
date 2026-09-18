@@ -23,25 +23,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from sync.specs import DICT_FIELDS, FIELD_NAME_TABLES  # noqa: E402  字典字段清单与同步规格共用一份
 from xtools import XTools, XToolsError  # noqa: E402
 
-TABLES = ["customer", "contact", "contract", "product", "gathering", "gathering_note", "bill", "sendgoods", "purchase", "purreturn", "libreturn", "repairinfo", "action", "opport"]
-
-# 文档中明确提到“参考数据字典”的字段（首批四模块）
-DICT_FIELDS = {
-    "customer": ["cu_status", "type", "cu_from", "employees", "industry", "life", "rala_rating", "country"],
-    "contract": ["type", "status", "pay_mode", "payment", "one_select", "confirm", "st_send"],
-    "product": ["unit", "pow_type", "class", "ptype", "status", "pmode"],
-    "gathering_note": ["type", "ctype", "invoice"],
-    "gathering": ["status", "type"],
-    "bill": ["type"],
-    "sendgoods": ["sntype", "package_type", "costtype", "status", "one_select"],
-    "action": ["type", "cale"],
-    "purchase": ["type", "status0"],
-    "contact": ["contype"],
-    "libreturn": ["one_select"],
-    "purreturn": ["one_select"],
-}
+TABLES = list(dict.fromkeys([*FIELD_NAME_TABLES, *DICT_FIELDS.keys()]))
 
 
 def dump(path: Path, data) -> None:

@@ -6,13 +6,22 @@
 * 人员：contract.who / gathering_note.who 为姓名；customer.owner / gathering.who / libout.who 为 part；action.who 为 ",M1,M2," 形式。
 
 接口（均为 GET，返回 JSON）：
-    /api/meta                       同步状态、字典、人员、可选年份
+    /api/meta                       同步状态、字典、人员、可选年份、产品分类、地区
     /api/overview?year=             经营总览
     /api/orders?...                 订单列表        /api/orders/<id>    订单详情
     /api/customers?...              客户列表        /api/customers/<id> 客户详情
     /api/receivables?...            计划回款（应收）
     /api/receipts?...               回款记录
     /api/actions?...                工作日志（行动记录）
+    0.5 新增（实现见 web/reports.py）：
+    /api/sales?by=&years=&ytd=      销售分析（维度 × 年份，可带 who / customer_id / prod / class / group / state / type 筛选下钻）
+    /api/customer_analysis?year=    客户分析（ABC 分层、新客、留存 / 复购、流失预警、按所有者）
+    /api/salesperson?who=&year=     业务员看板
+    /api/products?...               产品与库存      /api/product?sn=    产品详情
+    /api/purchases?...              采购单          /api/purchases/<id> 采购单详情
+    /api/pay_plans?...              付款计划        /api/cashflow?months=  现金流对照
+    /api/contacts?...               联系人查询
+    /api/export/<kind>?...          导出 Excel（与列表接口同样的筛选参数；kind 见 web/export.py）
 """
 
 from __future__ import annotations
@@ -27,9 +36,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
+from sync.specs import CONTRACT_CUSTOM_FIELDS
 from sync.store import col_name
+from web.export import EXPORT_MAX, Download, build_export
+from web.reports import PRODUCT_JOIN, ReportQueries
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("xtools.web")
@@ -37,15 +49,37 @@ logger = logging.getLogger("xtools.web")
 CANCELLED = "3"  # contract.status 意外中止：金额统计时剔除
 OPEN_PLAN = ("2", "4")  # gathering.status 未回 / 部分回款
 DICT_FIELDS = {
-    "contract": ["status", "type", "confirm", "st_send", "pay_mode", "payment"],
+    "contract": ["status", "type", "confirm", "st_send", "pay_mode", "payment", *CONTRACT_CUSTOM_FIELDS],
     "gathering": ["status"],
     "gathering_note": ["type", "ctype", "invoice"],
     "action": ["type", "cale"],
-    "customer": ["life", "type", "cu_status", "cu_from", "industry", "rala_rating", "employees"],
+    "customer": ["life", "type", "cu_status", "cu_from", "industry", "rala_rating", "employees", "state"],
     "sendgoods": ["status", "sntype"],
     "contact": ["contype"],
+    "purchase": ["type", "status0", "status", "confirm"],
+    "pay_plan": ["status", "type", "ctype"],
+    "product": ["status", "pmode"],
 }
+# 订单自定义字段中在列表 / 详情里重点展示的几项（正式公司字段名：j7 发票类型、j8 付款方式、j9 货期、j21 是否试用、j26 是否首单签约、j33 提成方案）
+ORDER_TERMS = [("j7", "invoice_type"), ("j8", "pay_terms"), ("j9", "lead_time"), ("j21", "trial"), ("j26", "first_sign"), ("j33", "commission_plan")]
 _ID_KEY = re.compile(r"^\[id:(\d+)\]$")
+_MULTI = re.compile(r"^,(?:[^,]+,)+$")  # 多选字段 ",1,2,"
+
+# 客户表 state 为 XTools 内部省份代码，字典未抓取时按该代码下最常见的城市 / 区推断省份
+CITY_PROVINCE = {
+    "北京市": "北京", "天津市": "天津", "上海市": "上海", "重庆市": "重庆", "石家庄市": "河北", "唐山市": "河北", "保定市": "河北", "太原市": "山西", "呼和浩特市": "内蒙古",
+    "沈阳市": "辽宁", "大连市": "辽宁", "长春市": "吉林", "哈尔滨市": "黑龙江", "南京市": "江苏", "苏州市": "江苏", "无锡市": "江苏", "常州市": "江苏", "南通市": "江苏", "连云港市": "江苏", "泰州市": "江苏", "扬州市": "江苏",
+    "杭州市": "浙江", "宁波市": "浙江", "温州市": "浙江", "绍兴市": "浙江", "台州市": "浙江", "湖州市": "浙江", "嘉兴市": "浙江", "金华市": "浙江",
+    "合肥市": "安徽", "福州市": "福建", "厦门市": "福建", "南昌市": "江西", "济南市": "山东", "青岛市": "山东", "烟台市": "山东", "淄博市": "山东", "潍坊市": "山东", "临沂市": "山东", "德州市": "山东",
+    "郑州市": "河南", "武汉市": "湖北", "长沙市": "湖南", "广州市": "广东", "深圳市": "广东", "珠海市": "广东", "佛山市": "广东", "东莞市": "广东", "中山市": "广东", "南宁市": "广西", "海口市": "海南",
+    "成都市": "四川", "贵阳市": "贵州", "昆明市": "云南", "拉萨市": "西藏", "西安市": "陕西", "兰州市": "甘肃", "西宁市": "青海", "银川市": "宁夏", "乌鲁木齐市": "新疆", "香港": "香港", "澳门": "澳门", "台北市": "台湾",
+}
+DISTRICT_PROVINCE = {
+    "朝阳区": "北京", "海淀区": "北京", "昌平区": "北京", "大兴区": "北京", "丰台区": "北京", "通州区": "北京", "东城区": "北京", "西城区": "北京", "顺义区": "北京", "房山区": "北京", "石景山区": "北京",
+    "浦东新区": "上海", "金山区": "上海", "闵行区": "上海", "松江区": "上海", "嘉定区": "上海", "奉贤区": "上海", "徐汇区": "上海", "杨浦区": "上海", "静安区": "上海", "青浦区": "上海", "宝山区": "上海", "长宁区": "上海", "普陀区": "上海", "虹口区": "上海", "黄浦区": "上海",
+    "和平区": "天津", "南开区": "天津", "河西区": "天津", "河东区": "天津", "河北区": "天津", "滨海新区": "天津", "西青区": "天津", "津南区": "天津", "北辰区": "天津", "东丽区": "天津", "武清区": "天津",
+    "渝中区": "重庆", "江北区": "重庆", "沙坪坝区": "重庆", "九龙坡区": "重庆", "渝北区": "重庆", "南岸区": "重庆", "巴南区": "重庆", "北碚区": "重庆", "大渡口区": "重庆", "两江新区": "重庆",
+}
 
 
 def money(value: Any) -> float:
@@ -83,20 +117,168 @@ class Lookups:
         self.field_names: Dict[str, Dict[str, str]] = {}
         for r in conn.execute("SELECT dt, field, name FROM field_names"):
             self.field_names.setdefault(r["dt"], {})[r["field"]] = r["name"] or ""
+        self.name_to_part: Dict[str, str] = {u["name"]: part for part, u in self.users.items()}
         self.customers: Dict[int, Dict[str, Any]] = {}
         self.key_to_id: Dict[str, int] = {}
-        for r in conn.execute("SELECT id, sn, cu_name, m_name, owner, life, type, cu_status, city FROM customer WHERE _deleted_at IS NULL"):
+        for r in conn.execute("SELECT id, sn, cu_name, m_name, owner, life, type, cu_status, city, state, district FROM customer WHERE _deleted_at IS NULL"):
             self.customers[r["id"]] = dict(r)
             if r["sn"]:
                 self.key_to_id[r["sn"]] = r["id"]
-        self.products: Dict[str, Dict[str, Any]] = {}
-        for r in conn.execute("SELECT sn, name, model, unit, class FROM product WHERE _deleted_at IS NULL AND sn <> ''"):
-            self.products[r["sn"]] = dict(r)
+        self.products: Dict[str, Dict[str, Any]] = {}  # 按编号 sn（非空）
+        self.products_by_id: Dict[int, Dict[str, Any]] = {}  # 按 id（含没有编号的产品，明细里以 "[id:N]" 引用）
+        for r in conn.execute("SELECT id, sn, name, model, unit, class FROM product WHERE _deleted_at IS NULL"):
+            d = dict(r)
+            self.products_by_id[d["id"]] = d
+            if d["sn"]:
+                self.products[d["sn"]] = d
         self.salespeople: List[Dict[str, Any]] = [
-            {"name": r["who"], "orders": r["n"]}
+            {"name": r["who"], "orders": r["n"], "part": self.name_to_part.get(r["who"])}
             for r in conn.execute("SELECT who, COUNT(*) n FROM contract WHERE _deleted_at IS NULL AND who <> '' GROUP BY who ORDER BY n DESC")
         ]
+        self._load_product_classes(conn)
+        self._load_states()
         self.loaded_at = time.time()
+
+    # ---- 产品分类树：product.class 存的是分类标题；product_class（csstree）为 id / title / upid 树，根为“产品类别”
+    def _load_product_classes(self, conn: sqlite3.Connection) -> None:
+        nodes: Dict[int, Tuple[str, int]] = {}
+        try:
+            for r in conn.execute("SELECT id, title, upid FROM product_class WHERE _deleted_at IS NULL ORDER BY id"):
+                nodes[int(r["id"])] = ((r["title"] or "").strip(), _int(r["upid"], 0))
+        except sqlite3.Error:
+            nodes = {}
+        roots = {nid for nid, (_, up) in nodes.items() if up == 0 or up not in nodes}
+        self.class_to_group: Dict[str, str] = {}
+        self.group_titles: List[str] = []
+        for nid, (title, up) in nodes.items():
+            if up in roots and title and title not in self.group_titles:
+                self.group_titles.append(title)
+        self.group_titles.sort()
+        for nid, (title, up) in nodes.items():
+            if not title or title in self.class_to_group:
+                continue
+            cur, depth = nid, 0
+            group = ""
+            while cur in nodes and depth < 20:
+                t, parent = nodes[cur]
+                if parent in roots:
+                    group = t
+                    break
+                cur, depth = parent, depth + 1
+            self.class_to_group[title] = group or title
+        counts: Dict[str, int] = {}
+        for p in self.products_by_id.values():
+            counts[p.get("class") or ""] = counts.get(p.get("class") or "", 0) + 1
+        self.product_classes: List[Dict[str, Any]] = sorted(
+            [{"title": t, "group": self.class_group(t), "count": n} for t, n in counts.items() if t], key=lambda x: (x["group"], -x["count"], x["title"]))
+
+    def product(self, key: Any) -> Optional[Dict[str, Any]]:
+        """明细里的产品引用 → 产品：编号 sn、"[id:N]"、"#N"（本地汇总键）或纯数字 id。"""
+        if key is None or key == "":
+            return None
+        key = str(key).strip()
+        m = _ID_KEY.match(key)
+        if m:
+            return self.products_by_id.get(int(m.group(1)))
+        if key.startswith("#") and key[1:].isdigit():
+            return self.products_by_id.get(int(key[1:]))
+        p = self.products.get(key)
+        if p is None and key.isdigit():
+            return self.products_by_id.get(int(key))
+        return p
+
+    def class_group(self, title: Any) -> str:
+        title = (title or "").strip() if isinstance(title, str) else ""
+        if not title:
+            return "（未分类）"
+        return self.class_to_group.get(title, title)
+
+    def classes_in_group(self, group: str) -> List[str]:
+        return [c["title"] for c in self.product_classes if c["group"] == group]
+
+    # ---- 省份：字典 customer.state 优先，否则按该代码下最常见的城市 / 区推断
+    def _load_states(self) -> None:
+        cities: Dict[str, Dict[str, int]] = {}
+        districts: Dict[str, Dict[str, int]] = {}
+        for c in self.customers.values():
+            code = str(c.get("state") or "0")
+            city = (c.get("city") or "").strip()
+            if city:
+                cities.setdefault(code, {})[city] = cities.setdefault(code, {}).get(city, 0) + 1
+            district = (c.get("district") or "").strip()
+            if district:
+                districts.setdefault(code, {})[district] = districts.setdefault(code, {}).get(district, 0) + 1
+        self.state_names: Dict[str, str] = {}
+        self.state_city_text: Dict[str, str] = {}
+        codes = set(cities) | set(districts) | {str(c.get("state") or "0") for c in self.customers.values()}
+        for code in codes:
+            top = sorted(cities.get(code, {}).items(), key=lambda kv: -kv[1])
+            self.state_city_text[code] = "、".join(city for city, _ in top[:3])
+            name = self.dicts.get(("customer", "state"), {}).get(code)
+            if code in ("0", ""):
+                name = "（未填地区）"
+            if not name:
+                for city, _ in top:
+                    if city in CITY_PROVINCE:
+                        name = CITY_PROVINCE[city]
+                        break
+            if not name:
+                for district, _ in sorted(districts.get(code, {}).items(), key=lambda kv: -kv[1]):
+                    if district in DISTRICT_PROVINCE:
+                        name = DISTRICT_PROVINCE[district]
+                        break
+            self.state_names[code] = name or ("（未填地区）" if code in ("0", "") else f"地区 {code}")
+
+    def state_name(self, code: Any) -> str:
+        code = str(code or "0")
+        return self.state_names.get(code) or self.dicts.get(("customer", "state"), {}).get(code) or (f"地区 {code}" if code not in ("0", "") else "（未填地区）")
+
+    def state_cities(self, code: Any) -> str:
+        return self.state_city_text.get(str(code or "0"), "")
+
+    def states(self) -> List[Dict[str, Any]]:
+        counts: Dict[str, int] = {}
+        for c in self.customers.values():
+            code = str(c.get("state") or "0")
+            counts[code] = counts.get(code, 0) + 1
+        return [{"key": code, "name": self.state_name(code), "cities": self.state_cities(code), "count": n} for code, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+
+    def supplier(self, cu_id: Any) -> Optional[Dict[str, Any]]:
+        """采购单 / 付款计划的供应商（客户表 id）。"""
+        cid = _int(cu_id, 0)
+        if not cid:
+            return None
+        return self.customer(f"[id:{cid}]")
+
+    def has_dict(self, dt_name: str, field: str) -> bool:
+        return bool(self.dicts.get((dt_name, field)))
+
+    def text_known(self, dt_name: str, field: str, key: Any) -> str:
+        """字典里有才翻译；没有字典或代码未知时返回空串（用于代码本身没有意义的字段）。"""
+        if key is None or key == "":
+            return ""
+        return self.dicts.get((dt_name, field), {}).get(str(key), "")
+
+    def text_or(self, dt_name: str, field: str, key: Any, fallback: Dict[str, str]) -> str:
+        """字典优先；字典未抓取时用内置对照；都没有则显示原始代码。"""
+        if key is None or key == "":
+            return ""
+        d = self.dicts.get((dt_name, field))
+        if d:
+            return d.get(str(key), str(key))
+        return fallback.get(str(key), f"状态 {key}")
+
+    def decode(self, dt_name: str, field: str, value: Any) -> str:
+        """按字典解码字段值；多选 ",1,2," 逐项解码；没有字典时原样返回。"""
+        if value is None or value == "":
+            return ""
+        d = self.dicts.get((dt_name, field))
+        s = str(value)
+        if not d:
+            return s
+        if _MULTI.match(s):
+            return "、".join(d.get(k, k) for k in s.strip(",").split(",") if k)
+        return d.get(s, s)
 
     # ---- 解析
     def customer_id(self, key: Any, numeric_is_id: bool = False) -> Optional[int]:
@@ -184,7 +366,9 @@ class Mirror:
 
 
 # ---------------------------------------------------------------------- 查询
-class Query:
+class Query(ReportQueries):
+    max_size = 500  # 导出时放大到 EXPORT_MAX
+
     def __init__(self, conn: sqlite3.Connection, lk: Lookups, params: Dict[str, str]):
         self.conn = conn
         self.lk = lk
@@ -196,7 +380,7 @@ class Query:
         return (self.p.get(name) or default).strip()
 
     def page(self) -> Tuple[int, int, int]:
-        size = min(max(_int(self.get("size"), 50), 1), 500)
+        size = min(max(_int(self.get("size"), 50), 1), self.max_size)
         page = max(_int(self.get("page"), 1), 1)
         return page, size, (page - 1) * size
 
@@ -240,6 +424,7 @@ class Query:
         states = self.rows("SELECT dt, total_rows, last_run_at, last_status, last_full_at, last_error FROM sync_state ORDER BY total_rows DESC")
         years = self.one("SELECT MIN(substr(date,1,4)) y0, MAX(substr(date,1,4)) y1 FROM contract WHERE _deleted_at IS NULL AND date LIKE '20__-__-__'") or {}
         y0, y1 = _int(years.get("y0"), self.today.year), _int(years.get("y1"), self.today.year)
+        names = self.lk.field_names.get("contract", {})
         return {
             "today": self.today.isoformat(),
             "synced_at": max([s["last_run_at"] or "" for s in states] or [""]),
@@ -248,6 +433,12 @@ class Query:
             "dicts": self.lk.dict_options(),
             "users": sorted(self.lk.users.values(), key=lambda u: (not u["active"], u["name"])),
             "salespeople": self.lk.salespeople,
+            "product_groups": self.lk.group_titles,
+            "product_classes": self.lk.product_classes,
+            "product_statuses": [r["status"] for r in self.rows("SELECT status, COUNT(*) n FROM product WHERE _deleted_at IS NULL AND status <> '' GROUP BY status ORDER BY n DESC")],
+            "states": self.lk.states(),
+            "order_terms": [{"key": k, "field": f, "name": names.get(k) or k, "has_dict": self.lk.has_dict("contract", k)} for k, f in ORDER_TERMS],
+            "libs": [{"key": r["lib"], "count": r["n"]} for r in self.rows("SELECT lib, COUNT(*) n FROM purchase WHERE _deleted_at IS NULL AND lib <> '' GROUP BY lib ORDER BY n DESC")],
         }
 
     # ---- 总览
@@ -301,8 +492,8 @@ class Query:
             "WHERE o._deleted_at IS NULL AND o.status <> ? AND o.date >= ? AND o.date < ? GROUP BY g.prod ORDER BY a DESC LIMIT 10",
             [CANCELLED, y_from, y_to],
         ):
-            prod = self.lk.products.get(r["prod"] or "", {})
-            top_products.append({"sn": r["prod"], "name": prod.get("name") or r["pn"] or r["prod"], "model": prod.get("model") or "", "amount": money(r["a"]), "quantity": r["q"], "orders": r["n"]})
+            prod = self.lk.product(r["prod"]) or {}
+            top_products.append({"id": prod.get("id"), "sn": prod.get("sn") or r["prod"], "name": prod.get("name") or r["pn"] or r["prod"], "model": prod.get("model") or "", "amount": money(r["a"]), "quantity": r["q"], "orders": r["n"]})
         status_mix = [
             {"status": r["status"], "text": self.lk.text("contract", "status", r["status"]), "count": r["n"], "amount": money(r["a"])}
             for r in self.rows("SELECT status, COUNT(*) n, SUM(CAST(sum AS REAL)) a FROM contract WHERE _deleted_at IS NULL AND date >= ? AND date < ? GROUP BY status ORDER BY n DESC", [y_from, y_to])
@@ -335,7 +526,7 @@ class Query:
         return rows
 
     def order_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
-        return {
+        row = {
             "id": r["id"], "no": r.get("no_"), "date": r.get("date"), "end_date": r.get("end_date"), "subject": r.get("subject"),
             "customer": self.lk.customer(r.get("cu_sn")), "amount": money(r.get("sum")), "money_type": r.get("money_type") or "RMB",
             "status": r.get("status"), "status_text": self.lk.text("contract", "status", r.get("status")),
@@ -346,6 +537,10 @@ class Query:
             "payment_text": self.lk.text("contract", "payment", r.get("payment")), "pay_mode_text": self.lk.text("contract", "pay_mode", r.get("pay_mode")),
             "contact_name": r.get("name"), "mphone": r.get("mphone"), "addr": r.get("addr"),
         }
+        # 自定义字段（发票类型 / 付款方式 / 货期 / 是否试用 / 首单签约 / 提成方案）：有字典时解码，没有字典时不显示代码
+        for key, field in ORDER_TERMS:
+            row[field] = self.lk.decode("contract", key, r.get(key)) if self.lk.has_dict("contract", key) else ""
+        return row
 
     def orders(self) -> Dict[str, Any]:
         clauses, args = ["o._deleted_at IS NULL"], []
@@ -366,6 +561,34 @@ class Query:
         if self.get("st_send"):
             clauses.append("o.st_send = ?")
             args.append(self.get("st_send"))
+        for key, _ in ORDER_TERMS:  # 自定义字段筛选（j7 发票类型等）
+            if self.get(key):
+                clauses.append(f"o.{key} = ?")
+                args.append(self.get(key))
+        if self.get("month"):
+            clauses.append("substr(o.date, 1, 7) = ?")
+            args.append(self.get("month")[:7])
+        if self.get("state"):
+            args.extend([self.get("state"), self.get("state")])
+            clauses.append("(o.cu_sn IN (SELECT '[id:' || id || ']' FROM customer WHERE state = ?) OR o.cu_sn IN (SELECT sn FROM customer WHERE sn <> '' AND state = ?))")
+        if self.get("owner"):
+            args.extend([self.get("owner"), self.get("owner")])
+            clauses.append("(o.cu_sn IN (SELECT '[id:' || id || ']' FROM customer WHERE owner = ?) OR o.cu_sn IN (SELECT sn FROM customer WHERE sn <> '' AND owner = ?))")
+        if self.get("prod"):  # 含某产品的订单（编号或 "[id:N]" 两种引用都算）
+            prod = self.lk.product(self.get("prod"))
+            keys = [prod.get("sn") or "", f"[id:{prod['id']}]"] if prod else [self.get("prod"), ""]
+            clauses.append("o.id IN (SELECT contract_id FROM contract_goods WHERE prod IN (?, ?))")
+            args.extend(keys)
+        if self.get("class"):
+            clauses.append(f"o.id IN (SELECT g.contract_id FROM contract_goods g {PRODUCT_JOIN} WHERE COALESCE(p.class, '') = ?)")
+            args.append(self.get("class"))
+        if self.get("group"):
+            titles = self.lk.classes_in_group(self.get("group"))
+            if titles:
+                clauses.append(f"o.id IN (SELECT g.contract_id FROM contract_goods g {PRODUCT_JOIN} WHERE COALESCE(p.class, '') IN ({','.join('?' * len(titles))}))")
+                args.extend(titles)
+            else:
+                clauses.append("0")
         self.date_clause("o", clauses, args)
         where = " WHERE " + " AND ".join(clauses)
         page, size, offset = self.page()
@@ -381,8 +604,8 @@ class Query:
         order = self.order_row(self.enrich_orders([r])[0])
         goods = []
         for g in self.rows("SELECT * FROM contract_goods WHERE contract_id = ? ORDER BY _seq", [oid]):
-            prod = self.lk.products.get(g.get("prod") or "", {})
-            goods.append({"prod": g.get("prod"), "name": prod.get("name") or g.get("prod_name"), "model": prod.get("model") or g.get("model"),
+            prod = self.lk.product(g.get("prod")) or {}
+            goods.append({"prod": g.get("prod"), "product_id": prod.get("id"), "name": prod.get("name") or g.get("prod_name"), "model": prod.get("model") or g.get("model"),
                           "unit": prod.get("unit"), "sku": g.get("sku"), "batchnum": g.get("batchnum"), "amount": g.get("amount"), "unit_price": money(g.get("un_price")),
                           "sum": money(g.get("sum")), "tax_rate": g.get("tax_rate"), "tax_money": money(g.get("tax_money")), "memo": g.get("memo")})
         receipts = [self.receipt_row(x) for x in self.rows(
@@ -398,11 +621,27 @@ class Query:
             libouts.append({"id": x["id"], "date": x.get("date"), "title": x.get("title"), "libname": x.get("libname"), "who": self.lk.user_name(x.get("who")), "items": x.get("items") or 0, "memo": x.get("memo")})
         actions = [self.action_row(a) for a in self.enrich_actions(self.rows(
             "SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER) WHERE a._deleted_at IS NULL AND a.co_id = ? ORDER BY a.date DESC, a.id DESC LIMIT 30", [str(oid)]))]
-        extras = self.raw_extras("contract", oid, set(r.keys()) | {"goods"})
-        return {"order": order, "goods": goods, "receipts": receipts, "plans": plans, "shipments": shipments, "libouts": libouts, "actions": actions, "extras": extras}
+        terms = self.order_terms(oid)
+        extras = [x for x in self.raw_extras("contract", oid, set(r.keys()) | {"goods"}) if x["key"] not in {t["key"] for t in terms}]
+        return {"order": order, "goods": goods, "receipts": receipts, "plans": plans, "shipments": shipments, "libouts": libouts, "actions": actions, "terms": terms, "extras": extras}
+
+    def order_terms(self, oid: int) -> List[Dict[str, Any]]:
+        """订单自定义字段（合同条款等）：原始 JSON 里的 j* 字段，按字典解码；有字典的排前面。"""
+        r = self.one("SELECT data FROM raw_records WHERE dt = 'contract' AND id = ?", [oid])
+        if not r:
+            return []
+        names = self.lk.field_names.get("contract", {})
+        data = json.loads(r["data"])
+        out = []
+        for k, v in data.items():
+            if not re.match(r"^j\d+$", k) or v in (None, "", "0", 0) or isinstance(v, (list, dict)):
+                continue
+            has = self.lk.has_dict("contract", k)
+            out.append({"key": k, "name": (names.get(k) or k).strip(), "value": self.lk.decode("contract", k, v), "raw": str(v), "decoded": has})
+        return sorted(out, key=lambda x: (not x["decoded"], int(x["key"][1:])))
 
     def raw_extras(self, dt_name: str, rid: int, skip: set) -> List[Dict[str, str]]:
-        """原始 JSON 中未进规范化表的非空字段（自定义字段 j1… 等），配字段中文名。"""
+        """原始 JSON 中未进规范化表的非空字段（自定义字段 j1… 等），配字段中文名；有字典的字段按字典解码。"""
         r = self.one("SELECT data FROM raw_records WHERE dt = ? AND id = ?", [dt_name, rid])
         if not r:
             return []
@@ -411,7 +650,7 @@ class Query:
         for k, v in json.loads(r["data"]).items():
             if k in skip or col_name(k) in skip or v in (None, "", "0", 0, [], {}) or isinstance(v, (list, dict)):
                 continue
-            out.append({"key": k, "name": names.get(k) or k, "value": str(v)})
+            out.append({"key": k, "name": (names.get(k) or k).strip(), "value": self.lk.decode(dt_name, k, v)})
         return out
 
     # ---- 客户
@@ -692,12 +931,32 @@ ROUTES: List[Tuple[re.Pattern, Callable[[Query, re.Match], Any]]] = [
     (re.compile(r"^/api/receivables$"), lambda q, m: q.receivables()),
     (re.compile(r"^/api/receipts$"), lambda q, m: q.receipts()),
     (re.compile(r"^/api/actions$"), lambda q, m: q.actions()),
+    (re.compile(r"^/api/sales$"), lambda q, m: q.sales()),
+    (re.compile(r"^/api/customer_analysis$"), lambda q, m: q.customer_analysis()),
+    (re.compile(r"^/api/salesperson$"), lambda q, m: q.salesperson()),
+    (re.compile(r"^/api/products$"), lambda q, m: q.products()),
+    (re.compile(r"^/api/product$"), lambda q, m: q.product_detail()),
+    (re.compile(r"^/api/purchases$"), lambda q, m: q.purchases()),
+    (re.compile(r"^/api/purchases/(\d+)$"), lambda q, m: q.purchase_detail(int(m.group(1)))),
+    (re.compile(r"^/api/pay_plans$"), lambda q, m: q.pay_plans()),
+    (re.compile(r"^/api/cashflow$"), lambda q, m: q.cashflow()),
+    (re.compile(r"^/api/contacts$"), lambda q, m: q.contacts()),
+    (re.compile(r"^/api/export/([a-z_]+)$"), lambda q, m: export_query(q, m.group(1))),
 ]
+
+
+def export_query(q: Query, kind: str) -> Any:
+    q.max_size = EXPORT_MAX
+    q.p = {**q.p, "size": str(EXPORT_MAX), "page": "1", "limit": str(EXPORT_MAX)}
+    try:
+        return build_export(q, kind)
+    except KeyError:
+        return None
 
 
 class Handler(BaseHTTPRequestHandler):
     mirror: Mirror  # 由 make_server 注入
-    server_version = "xtools-web/0.4"
+    server_version = "xtools-web/0.5"
 
     def log_message(self, fmt: str, *args: Any) -> None:  # 访问日志降级为 debug
         logger.debug("%s " + fmt, self.address_string(), *args)
@@ -725,7 +984,10 @@ class Handler(BaseHTTPRequestHandler):
             result = func(Query(conn, lk, params), m)
             if result is None:
                 return self.send_json({"error": "not found"}, 404)
-            self.send_json(result)
+            if isinstance(result, Download):
+                self.send_download(result)
+            else:
+                self.send_json(result)
             logger.info("%s %s %.0fms", self.path.split("?")[0], json.dumps(params, ensure_ascii=False) if params else "", (time.time() - t0) * 1000)
         except sqlite3.Error as exc:
             logger.exception("数据库错误 %s", self.path)
@@ -745,6 +1007,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def send_download(self, d: Download) -> None:
+        ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", d.filename) or "export.xlsx"
+        self.send_response(200)
+        self.send_header("Content-Type", d.content_type)
+        self.send_header("Content-Length", str(len(d.data)))
+        self.send_header("Content-Disposition", f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(d.filename)}")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(d.data)
 
     def send_file(self, path: Path, content_type: Optional[str]) -> None:
         try:
