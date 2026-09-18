@@ -65,6 +65,7 @@ details.dup > summary { cursor: pointer; font-size: 12px; color: var(--text-2); 
 details.dup > summary:hover { color: var(--accent); }
 .dup-item { border-left: 2px solid var(--border); padding: 3px 0 3px 8px; margin-top: 5px; }
 .dup-item.hot { border-left-color: var(--critical); }
+.contact-name { margin-top: 5px; padding-top: 4px; border-top: 1px dotted var(--border); font-weight: 500; }
 .contact-info { display: flex; flex-wrap: wrap; gap: 2px 8px; }
 .contact-info .miss { color: var(--warn); display: inline-flex; align-items: center; gap: 2px; }
 .contact-info .miss .tri { width: 11px; height: 11px; }
@@ -451,7 +452,7 @@ function decorateTables(root) {
   root.querySelectorAll('table:not([data-scanned])').forEach((t) => {
     t.setAttribute('data-scanned', '');
     const heads = [...t.querySelectorAll('thead th')].map((th) => th.textContent.replace(/[\u2195\u25b2\u25bc]/g, '').replace(/\s+/g, ' ').trim());
-    if (heads.length < 5) return;                                      // 三四列的小汇总表在窄屏仍以表格更好读
+    if (heads.length < 5 && !t.classList.contains('wide')) return;     // 三四列的小汇总表在窄屏仍以表格更好读（标了 wide 的长表除外）
     t.setAttribute('data-cards', '');
     t.querySelectorAll('tbody > tr').forEach((tr) => {
       const tds = [...tr.children];
@@ -896,8 +897,12 @@ async function pageActions(view, params) {
       $('#byType').innerHTML = `<h2>按类型</h2><table><tbody>${res.by_type.map((t) => `<tr><td>${esc(t.text)}</td><td style="width:60%">${inlineBar(t.count, maxType, t.count)}</td></tr>`).join('') || '<tr><td class="empty">无</td></tr>'}</tbody></table>`;
       $('#byDay').innerHTML = `<h2>按日 <span class="count">${res.by_day.length ? esc(res.by_day[0].date) + ' 起' : ''}</span></h2>${miniBars(res.by_day.map((d) => d.count), '', res.by_day.map((d) => `${d.date}：${d.count} 条`))}<p class="hint">悬停查看每日条数（手机上小图无提示，见下方列表）</p>`;
       list.innerHTML = `${res.dup_min ? `<p class="summary">按相似度排序：在当前筛选范围里扫了 <b>${fmtInt(res.dup_scanned)}</b> 条，命中相似 ≥${res.dup_min}% 的 <b>${fmtInt(res.total)}</b> 条${res.dup_scanned >= 2000 ? '（扫描上限 2000 条，可缩小日期范围）' : ''}</p>` : ''}
-        <table><thead><tr><th>日期</th><th>人员</th><th>类型</th><th style="min-width:180px">客户</th><th style="min-width:150px">联系人</th><th>内容</th></tr></thead><tbody>
-        ${res.rows.map((a) => `<tr><td class="nowrap">${esc(a.date || '—')}${dateFlag(a.date_flag, a.date)}${a.end_date && a.end_date !== a.date ? `<div class="muted small">至 ${esc(a.end_date)}</div>` : ''}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="nowrap small">${esc(a.type_text || a.cale_text)}</td><td class="lead">${custLink(a.customer)}${visitInfo(a)}</td><td>${esc(a.contact || '')}${contactInfo(a)}${mentions(a)}</td><td>${actionText(a)}${a.order_id ? `<div class="small">关联订单 ${orderLink(a.order_id)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">没有符合条件的记录</td></tr>'}
+        <table class="wide"><thead><tr><th style="width:96px">日期</th><th style="width:78px">人员</th><th style="width:210px">客户 · 联系人</th><th>内容</th></tr></thead><tbody>
+        ${res.rows.map((a) => `<tr>
+          <td class="nowrap">${esc(a.date || '—')}<div class="muted small">${esc(a.type_text || a.cale_text || '')}</div>${dateFlag(a.date_flag, a.date)}${a.end_date && a.end_date !== a.date ? `<div class="muted small">至 ${esc(a.end_date)}</div>` : ''}</td>
+          <td class="nowrap small">${esc(a.who.join('、'))}</td>
+          <td class="lead">${custLink(a.customer)}${visitInfo(a)}${a.contact ? `<div class="contact-name">${esc(a.contact)}</div>${contactInfo(a)}` : ''}${mentions(a)}</td>
+          <td>${actionText(a)}${a.order_id ? `<div class="small">关联订单 ${orderLink(a.order_id)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">没有符合条件的记录</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       bindLinks(list);
