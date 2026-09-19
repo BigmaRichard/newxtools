@@ -203,9 +203,12 @@ tr.click:hover td { background: var(--surface-2); }
 .title-due { margin-left: 12px; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--muted); background: var(--surface-2); white-space: nowrap; }
 .drawer .body { overflow: auto; padding: 14px 20px 40px; }
 .kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; font-size: 13px; }
-.kv div { display: flex; gap: 8px; min-width: 0; }
-.kv label { color: var(--muted); white-space: nowrap; min-width: 64px; }
-.kv span { word-break: break-all; }
+.kv div { display: flex; gap: 8px; min-width: 0; align-items: baseline; }
+.kv label { color: var(--muted); min-width: 64px; flex: 0 0 auto; max-width: 48%; white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
+.kv span { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; word-break: break-word; line-height: 1.4; }
+.kv.stack { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 18px; align-items: start; }
+.kv.stack div { flex-direction: column; gap: 1px; align-items: stretch; }
+.kv.stack label { max-width: none; min-width: 0; font-size: 12px; }
 .section-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .section-title .count { color: var(--muted); font-weight: 400; font-size: 12px; }
 .money { font-variant-numeric: tabular-nums; }
@@ -1501,7 +1504,7 @@ async function openProduct(key) {
       ${d.purchases.length ? `<table><thead><tr><th>日期</th><th>采购单</th><th>供应商</th><th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th>经办</th></tr></thead><tbody>${d.purchases.map((u) => `<tr><td class="nowrap">${esc(u.date)}</td><td class="small"><a data-purchase="${u.purchase_id}">${esc(u.no)}</a></td><td>${u.supplier ? custLink(u.supplier) : '—'}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtMoney(u.price)}</td><td class="num">${fmtMoney(u.money)} <span class="muted small">${esc(u.money_type)}</span></td><td class="nowrap">${esc(u.who)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       <h3>出库记录 <span class="muted">${d.libouts.length} 行</span></h3>
       ${d.libouts.length ? `<table><thead><tr><th>日期</th><th>标题</th><th>仓库</th><th>客户</th><th>订单号</th><th class="num">数量</th><th>批号</th><th>经办</th></tr></thead><tbody>${d.libouts.map((l) => `<tr><td class="nowrap">${esc(l.date)}</td><td class="small">${esc(l.title || '')}</td><td class="small">${esc(l.libname || '')}</td><td>${custLink(l.customer)}</td><td class="small">${esc(l.order_no || '')}</td><td class="num">${fmtInt(l.qty)}</td><td class="small">${esc(l.batchnum || '')}</td><td>${esc(l.who)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
-      ${d.extras.length ? `<h3>其他字段</h3><div class="kv">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
+      ${d.extras.length ? `<h3>其他字段</h3><div class="kv stack">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
     const title = esc(isModel ? p.model_name : p.name);
     stack[stack.length - 1].title = title; stack[stack.length - 1].html = html;
     $('#drawerTitle').innerHTML = title; $('#drawerBody').innerHTML = html;
@@ -1534,7 +1537,7 @@ async function openPurchase(id) {
       <h3>付款计划 <span class="muted">${d.plans.length} 期</span></h3>
       ${d.plans.length ? `<table><thead><tr><th>计划日期</th><th class="num">期次</th><th class="num">金额</th><th>状态</th><th>付款方式</th><th>经办</th><th>备注</th></tr></thead><tbody>${d.plans.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td class="num">${esc(p.serial || '')}</td><td class="num">${rmbCell(p)}</td><td>${payTag(p)}</td><td class="small">${esc(p.type_text)}</td><td>${esc(p.who || '')}</td><td class="small">${esc(p.memo || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       ${d.returns.length ? `<h3>采购退货 <span class="muted">${d.returns.length} 张</span></h3><table><thead><tr><th>日期</th><th>主题</th><th>退货单号</th><th class="num">金额</th><th>经办</th></tr></thead><tbody>${d.returns.map((r) => `<tr><td class="nowrap">${esc(r.date)}</td><td>${esc(r.subject || '')}</td><td class="small">${esc(r.return_no || '')}</td><td class="num">${fmtMoney(r.money)} ${esc(r.money_type)}</td><td>${esc(r.who || '')}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${d.extras.length ? `<h3>其他字段</h3><div class="kv">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
+      ${d.extras.length ? `<h3>其他字段</h3><div class="kv stack">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
     stack[stack.length - 1].title = `采购单 ${esc(u.no)}`; stack[stack.length - 1].html = html;
     $('#drawerTitle').innerHTML = `采购单 ${esc(u.no)}`; $('#drawerBody').innerHTML = html;
     bindLinks($('#drawerBody'));
@@ -1580,7 +1583,7 @@ async function openOrder(id) {
         <div style="grid-column:1/-1"><label>主题</label><span>${esc(o.subject)}</span></div>
         ${o.memo ? `<div style="grid-column:1/-1"><label>备注</label><span>${esc(o.memo)}</span></div>` : ''}
       </div>
-      ${d.terms && d.terms.length ? `<h3>合同条款与自定义字段 <span class="muted">${d.terms.filter((t) => t.decoded).length ? '' : '选项字典未抓取，显示原始代码'}</span></h3><div class="kv">${d.terms.map((t) => `<div><label title="${esc(t.key)}">${esc(t.name)}</label><span>${esc(t.value)}${t.decoded || !/^[\d,]+$/.test(t.value) ? '' : ' <span class="muted small" title="CRM 里的选项代码，运行 sync.py --dict 抓取字典后显示中文">（代码）</span>'}</span></div>`).join('')}</div>` : ''}
+      ${d.terms && d.terms.length ? `<h3>合同条款与自定义字段 <span class="muted">${d.terms.filter((t) => t.decoded).length ? '' : '选项字典未抓取，显示原始代码'}</span></h3><div class="kv stack">${d.terms.map((t) => `<div><label title="${esc(t.key)}">${esc(t.name)}</label><span>${esc(t.value)}${t.decoded || !/^[\d,]+$/.test(t.value) ? '' : ' <span class="muted small" title="CRM 里的选项代码，运行 sync.py --dict 抓取字典后显示中文">（代码）</span>'}</span></div>`).join('')}</div>` : ''}
       <h3>产品明细 <span class="muted">${d.goods.length} 项 · 合计 ${fmtMoney(goodsTotal)}</span></h3>
       <table><thead><tr><th>编码</th><th>产品</th><th>规格 / 型号</th><th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th class="num">税率</th><th>备注</th></tr></thead><tbody>
         ${d.goods.map((g) => `<tr><td class="nowrap small">${esc(g.prod)}</td><td class="lead">${g.product_id ? `<a data-prod="${g.product_id}">${esc(g.name)}</a>` : esc(g.name)}</td><td class="small">${esc([g.model, g.sku, g.batchnum].filter((x) => x && x !== '-').join(' / '))}</td><td class="num">${esc(g.amount)}${g.unit ? ` <span class="muted small">${esc(g.unit)}</span>` : ''}</td><td class="num">${fmtMoney(g.unit_price)}</td><td class="num">${fmtMoney(g.sum)}</td><td class="num small">${esc(g.tax_rate || '')}</td><td class="small">${esc(g.memo || '')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">无明细</td></tr>'}
@@ -1594,7 +1597,7 @@ async function openOrder(id) {
       <h3>出库单 <span class="muted">${d.libouts.length} 张</span></h3>
       ${d.libouts.length ? `<table><thead><tr><th>日期</th><th>标题</th><th>仓库</th><th class="num">明细</th><th>经办</th><th>备注</th></tr></thead><tbody>${d.libouts.map((l) => `<tr><td class="nowrap">${esc(l.date)}</td><td class="small">${esc(l.title || '')}</td><td class="small">${esc(l.libname || '')}</td><td class="num">${l.items}</td><td>${esc(l.who)}</td><td class="small">${esc(l.memo || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       ${d.actions.length ? `<h3>相关行动记录 <span class="muted">${d.actions.length} 条</span></h3><table><tbody>${d.actions.map((a) => `<tr><td class="nowrap">${esc(a.date)}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="small">${esc(a.type_text)}</td><td>${actionText(a)}${mentions(a)}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${d.extras.length ? `<h3>其他字段</h3><div class="kv">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
+      ${d.extras.length ? `<h3>其他字段</h3><div class="kv stack">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
     const title = `订单 ${esc(o.no)}${planAlert(d.plans)}`;
     stack[stack.length - 1].title = title;
     stack[stack.length - 1].html = html;
@@ -1637,7 +1640,7 @@ async function openCustomer(id) {
       ${d.receipts.length ? `<table><thead><tr><th>日期</th><th>订单号</th><th class="num">金额</th><th>付款方式</th><th>业务员</th><th>备注</th></tr></thead><tbody>${d.receipts.map((n) => `<tr><td class="nowrap">${esc(n.date)}</td><td>${orderLink(n.order_id, n.order_no)}</td><td class="num">${fmtMoney(n.amount)}</td><td class="small">${esc(n.type_text)}</td><td>${esc(n.who || '')}</td><td class="small">${esc(n.memo || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       <h3>行动记录 <span class="muted">最近 ${d.actions.length} 条</span></h3>
       ${d.actions.length ? `<table><tbody>${d.actions.map((a) => `<tr><td class="nowrap">${esc(a.date)}</td><td class="nowrap">${esc(a.who.join('、'))}</td><td class="small nowrap">${esc(a.type_text)}${a.contact ? `<div class="muted">${esc(a.contact)}</div>` : ''}</td><td>${actionText(a)}${mentions(a)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
-      ${d.extras.length ? `<h3>其他字段</h3><div class="kv">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
+      ${d.extras.length ? `<h3>其他字段</h3><div class="kv stack">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
     stack[stack.length - 1].title = esc(c.name);
     stack[stack.length - 1].html = html;
     $('#drawerTitle').innerHTML = esc(c.name);

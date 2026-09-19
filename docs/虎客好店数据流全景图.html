@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>虎客好店数据流全景图</title>
+<style>
+  @page { size: A3 landscape; margin: 10mm; }
+  html, body { margin: 0; background: #ffffff; color: #1f2937; font-family: 'Noto Sans CJK SC','PingFang SC','Microsoft YaHei','Source Han Sans SC',sans-serif; }
+  .wrap { padding: 16px 20px; max-width: 1760px; margin: 0 auto; }
+  figure { margin: 0; }
+  svg { width: 100%; height: auto; display: block; border: 1px solid #e5e7eb; }
+  figcaption { font-size: 12.5px; color: #6b7280; margin-top: 10px; line-height: 1.6; }
+  h2 { font-size: 15px; margin: 18px 0 6px; }
+  table { border-collapse: collapse; font-size: 12px; width: 100%; }
+  th, td { border: 1px solid #d1d5db; padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #f3f4f6; }
+  @media print { .wrap { padding: 0; } svg { border: none; } .notes { page-break-before: always; break-before: page; } table { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1720 1202" role="img" aria-label="虎客好店数据流全景图" font-family="'Noto Sans CJK SC','PingFang SC','Microsoft YaHei','Source Han Sans SC',sans-serif">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937"/></marker>
+<marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b4530a"/></marker>
+</defs>
+<rect x="0" y="92" width="1720" height="150" fill="#f8fafc" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="92" width="178" height="150" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="89.0" y="165.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">微信端（会员）</text>
+<text x="89.0" y="184.0" text-anchor="middle" font-size="10.5" font-weight="400" fill="#6b7280">虎客好店小程序</text>
+<rect x="0" y="242" width="1720" height="150" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="242" width="178" height="150" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="89.0" y="315.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">虎客好店平台</text>
+<text x="89.0" y="334.0" text-anchor="middle" font-size="10.5" font-weight="400" fill="#6b7280">XTools 一体云托管</text>
+<rect x="0" y="392" width="1720" height="150" fill="#f8fafc" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="392" width="178" height="150" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="89.0" y="465.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">CRM 业务数据</text>
+<text x="89.0" y="484.0" text-anchor="middle" font-size="10.5" font-weight="400" fill="#6b7280">产品 / 预下单 / 客户 / 订单</text>
+<rect x="0" y="542" width="1720" height="150" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="542" width="178" height="150" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="89.0" y="615.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">人工环节</text>
+<text x="89.0" y="634.0" text-anchor="middle" font-size="10.5" font-weight="400" fill="#6b7280">MW 业务员在 CRM 操作</text>
+<rect x="0" y="692" width="1720" height="150" fill="#f8fafc" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="692" width="178" height="150" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="89.0" y="765.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">OPEN API</text>
+<text x="89.0" y="784.0" text-anchor="middle" font-size="10.5" font-weight="400" fill="#6b7280">crm.xtcrm.com/open/index.xt</text>
+<rect x="0" y="842" width="1720" height="150" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="842" width="178" height="150" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="89.0" y="915.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">MW 本地</text>
+<text x="89.0" y="934.0" text-anchor="middle" font-size="10.5" font-weight="400" fill="#6b7280">只读镜像库 · 本地前台</text>
+<rect x="0" y="992" width="1720" height="150" fill="#f8fafc" stroke="#d1d5db" stroke-width="1"/>
+<rect x="0" y="992" width="178" height="150" fill="#e5e7eb" stroke="#d1d5db" stroke-width="1"/>
+<text x="89.0" y="1065.0" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2937">本轮方向</text>
+<text x="89.0" y="1084.0" text-anchor="middle" font-size="10.5" font-weight="400" fill="#6b7280">待建，2026-09-19 确定</text>
+<text x="347.5" y="84" text-anchor="middle" font-size="13" font-weight="700" fill="#b4530a">① 会员建档</text>
+<text x="647.5" y="84" text-anchor="middle" font-size="13" font-weight="700" fill="#b4530a">② 商品上架</text>
+<text x="947.5" y="84" text-anchor="middle" font-size="13" font-weight="700" fill="#b4530a">③ 会员下单</text>
+<text x="1247.5" y="84" text-anchor="middle" font-size="13" font-weight="700" fill="#b4530a">④ 转成订单</text>
+<text x="1547.5" y="84" text-anchor="middle" font-size="13" font-weight="700" fill="#b4530a">⑤ 履约与回款</text>
+<text x="178" y="30" text-anchor="start" font-size="20" font-weight="700" fill="#1f2937">虎客好店（微店）数据流全景图</text>
+<text x="178" y="50" text-anchor="start" font-size="12" font-weight="400" fill="#6b7280">MW · xtools 优化项目 · 正式公司 pc7699 实勘 · 数据截至 2026-09-19</text>
+<rect x="205" y="118" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="347.5" y="141" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">扫码或分享进入小程序</text>
+<text x="347.5" y="161" text-anchor="middle" font-size="11.5" fill="#4b5563">微信用户打开「虎客好店」</text>
+<text x="347.5" y="178" text-anchor="middle" font-size="11.5" fill="#4b5563">店铺：麦可旺志小程序店铺</text>
+<rect x="205" y="268" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="347.5" y="291" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">生成虎客会员身份</text>
+<text x="347.5" y="311" text-anchor="middle" font-size="11.5" fill="#4b5563">会员标识为 16 位随机串</text>
+<text x="347.5" y="328" text-anchor="middle" font-size="11.5" fill="#4b5563">平台自动回写 CRM</text>
+<rect x="205" y="418" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="347.5" y="441" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">客户 + 联系人</text>
+<text x="347.5" y="461" text-anchor="middle" font-size="11.5" fill="#4b5563">个人客户：姓名 手机号</text>
+<text x="347.5" y="478" text-anchor="middle" font-size="11.5" fill="#4b5563">联系人：虎客会员…（15 条）</text>
+<rect x="205" y="718" width="285" height="96" rx="6" ry="6" fill="#eef7f0" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="347.5" y="741" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">api.output · customer</text>
+<text x="347.5" y="761" text-anchor="middle" font-size="11.5" fill="#4b5563">extend=1 含联系人</text>
+<text x="347.5" y="778" text-anchor="middle" font-size="11.5" fill="#4b5563">可读</text>
+<rect x="205" y="868" width="285" height="96" rx="6" ry="6" fill="#eef7f0" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="347.5" y="891" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">镜像 customer / contact</text>
+<text x="347.5" y="911" text-anchor="middle" font-size="11.5" fill="#4b5563">已在同步范围内</text>
+<rect x="205" y="1018" width="285" height="96" rx="6" ry="6" fill="#fdf1e5" stroke="#b4530a" stroke-width="1.2"/>
+<text x="347.5" y="1041" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">会员客户治理</text>
+<text x="347.5" y="1061" text-anchor="middle" font-size="11.5" fill="#4b5563">按手机号比对去重</text>
+<text x="347.5" y="1078" text-anchor="middle" font-size="11.5" fill="#4b5563">指派所有者、补联系方式</text>
+<rect x="505" y="268" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="647.5" y="291" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">商品列表 / 商家主页精选</text>
+<text x="647.5" y="311" text-anchor="middle" font-size="11.5" fill="#4b5563">精选品在商家主页展示</text>
+<rect x="505" y="418" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="647.5" y="441" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">产品表 product.hm_shop</text>
+<text x="647.5" y="461" text-anchor="middle" font-size="11.5" fill="#4b5563">上架 13 · 不上架 7,849</text>
+<text x="647.5" y="478" text-anchor="middle" font-size="11.5" fill="#4b5563">13 个上架品售价为 0</text>
+<rect x="505" y="568" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="647.5" y="591" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">产品列表编辑 / 批量编辑</text>
+<text x="647.5" y="611" text-anchor="middle" font-size="11.5" fill="#4b5563">选「上架」或「精选」</text>
+<text x="647.5" y="628" text-anchor="middle" font-size="11.5" fill="#4b5563">现由人工逐条维护</text>
+<rect x="505" y="718" width="285" height="96" rx="6" ry="6" fill="#fdf1e5" stroke="#b4530a" stroke-width="1.2"/>
+<text x="647.5" y="741" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">api.output / api.update · product</text>
+<text x="647.5" y="761" text-anchor="middle" font-size="11.5" fill="#4b5563">读 hm_shop：可用</text>
+<text x="647.5" y="778" text-anchor="middle" font-size="11.5" fill="#4b5563">写 hm_shop：文档未列，待验证</text>
+<rect x="505" y="868" width="285" height="96" rx="6" ry="6" fill="#f5f7fa" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="647.5" y="891" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">镜像 product</text>
+<text x="647.5" y="911" text-anchor="middle" font-size="11.5" fill="#4b5563">未同步 hm_shop 等列</text>
+<text x="647.5" y="928" text-anchor="middle" font-size="11.5" fill="#4b5563">原始 JSON 表中已有</text>
+<rect x="505" y="1018" width="285" height="96" rx="6" ry="6" fill="#fdf1e5" stroke="#b4530a" stroke-width="1.2"/>
+<text x="647.5" y="1041" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">上架与定价自动化</text>
+<text x="647.5" y="1061" text-anchor="middle" font-size="11.5" fill="#4b5563">测试公司先验写入</text>
+<text x="647.5" y="1078" text-anchor="middle" font-size="11.5" fill="#4b5563">产品页加「好店」列与提示</text>
+<rect x="805" y="118" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="947.5" y="141" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">提交订单</text>
+<text x="947.5" y="161" text-anchor="middle" font-size="11.5" fill="#4b5563">填收货人、电话、地址</text>
+<text x="947.5" y="178" text-anchor="middle" font-size="11.5" fill="#4b5563">选上架商品与数量</text>
+<rect x="805" y="268" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="947.5" y="291" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">生成虎客订单号</text>
+<text x="947.5" y="311" text-anchor="middle" font-size="11.5" fill="#4b5563">HM + 16 位编号</text>
+<rect x="805" y="418" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="947.5" y="441" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">报价 / 预下单（price 表）</text>
+<text x="947.5" y="461" text-anchor="middle" font-size="11.5" fill="#4b5563">分类「来自虎客」，4 条 ￥49</text>
+<text x="947.5" y="478" text-anchor="middle" font-size="11.5" fill="#4b5563">收货信息写在交付说明里</text>
+<rect x="805" y="718" width="285" height="96" rx="6" ry="6" fill="#fdecec" stroke="#b91c1c" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="947.5" y="741" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">报价单无读取接口</text>
+<text x="947.5" y="761" text-anchor="middle" font-size="11.5" fill="#4b5563">仅有写入与修改两个接口</text>
+<text x="947.5" y="778" text-anchor="middle" font-size="11.5" fill="#4b5563">预下单取不到</text>
+<rect x="805" y="868" width="285" height="96" rx="6" ry="6" fill="#fdecec" stroke="#b91c1c" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="947.5" y="891" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">镜像缺口</text>
+<text x="947.5" y="911" text-anchor="middle" font-size="11.5" fill="#4b5563">预下单不在镜像库</text>
+<rect x="805" y="1018" width="285" height="96" rx="6" ry="6" fill="#fdf1e5" stroke="#b4530a" stroke-width="1.2"/>
+<text x="947.5" y="1041" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">取数方式待定</text>
+<text x="947.5" y="1061" text-anchor="middle" font-size="11.5" fill="#4b5563">列表导出后入库（半自动）</text>
+<text x="947.5" y="1078" text-anchor="middle" font-size="11.5" fill="#4b5563">或向 XTools 询问读取接口</text>
+<rect x="1105" y="568" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1247.5" y="591" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">确认生成订单</text>
+<text x="1247.5" y="611" text-anchor="middle" font-size="11.5" fill="#4b5563">业务员在预下单详情操作</text>
+<text x="1247.5" y="628" text-anchor="middle" font-size="11.5" fill="#4b5563">例：214 → 订单 25501</text>
+<rect x="1105" y="418" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1247.5" y="441" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">订单（contract 表）</text>
+<text x="1247.5" y="461" text-anchor="middle" font-size="11.5" fill="#4b5563">进入常规订单流程</text>
+<text x="1247.5" y="478" text-anchor="middle" font-size="11.5" fill="#4b5563">25501 其后已删除</text>
+<rect x="1105" y="718" width="285" height="96" rx="6" ry="6" fill="#eef7f0" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1247.5" y="741" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">api.output · contract</text>
+<text x="1247.5" y="761" text-anchor="middle" font-size="11.5" fill="#4b5563">可读，已在同步链路</text>
+<rect x="1105" y="868" width="285" height="96" rx="6" ry="6" fill="#eef7f0" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1247.5" y="891" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">镜像 contract</text>
+<text x="1247.5" y="911" text-anchor="middle" font-size="11.5" fill="#4b5563">已覆盖已转化部分</text>
+<rect x="1105" y="1018" width="285" height="96" rx="6" ry="6" fill="#fdf1e5" stroke="#b4530a" stroke-width="1.2"/>
+<text x="1247.5" y="1041" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">微店监控页</text>
+<text x="1247.5" y="1061" text-anchor="middle" font-size="11.5" fill="#4b5563">转化率、未转化超时提醒</text>
+<text x="1247.5" y="1078" text-anchor="middle" font-size="11.5" fill="#4b5563">来源识别口径待定</text>
+<rect x="1405" y="268" width="285" height="96" rx="6" ry="6" fill="#f5f7fa" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1547.5" y="291" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">分销佣金</text>
+<text x="1547.5" y="311" text-anchor="middle" font-size="11.5" fill="#4b5563">佣金列表 0 条，未启用</text>
+<rect x="1405" y="418" width="285" height="96" rx="6" ry="6" fill="#eef4fb" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1547.5" y="441" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">发货 / 出库 / 回款</text>
+<text x="1547.5" y="461" text-anchor="middle" font-size="11.5" fill="#4b5563">sendgoods · libout</text>
+<text x="1547.5" y="478" text-anchor="middle" font-size="11.5" fill="#4b5563">gathering · gathering_note</text>
+<rect x="1405" y="718" width="285" height="96" rx="6" ry="6" fill="#eef7f0" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1547.5" y="741" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">对应读取接口</text>
+<text x="1547.5" y="761" text-anchor="middle" font-size="11.5" fill="#4b5563">均在现有同步范围内</text>
+<rect x="1405" y="868" width="285" height="96" rx="6" ry="6" fill="#eef7f0" stroke="#9ca3af" stroke-width="1.2"/>
+<text x="1547.5" y="891" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">前台既有页面</text>
+<text x="1547.5" y="911" text-anchor="middle" font-size="11.5" fill="#4b5563">订单、应收、销售分析</text>
+<rect x="1405" y="1018" width="285" height="96" rx="6" ry="6" fill="#fdf1e5" stroke="#b4530a" stroke-width="1.2"/>
+<text x="1547.5" y="1041" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">业绩与提成口径</text>
+<text x="1547.5" y="1061" text-anchor="middle" font-size="11.5" fill="#4b5563">微店订单归属规则待定</text>
+<path d="M 347.5 214 L 347.5 268" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 347.5 364 L 347.5 418" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 347.5 514 L 347.5 718" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 347.5 814 L 347.5 868" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 647.5 418 L 647.5 364" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<path d="M 587.5 568 L 587.5 514" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<path d="M 707.5 514 L 707.5 718" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 647.5 814 L 647.5 868" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 947.5 214 L 947.5 268" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 947.5 364 L 947.5 418" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 947.5 514 L 947.5 718" fill="none" stroke="#b91c1c" stroke-width="1.6" marker-end="url(#arrow)" stroke-dasharray="5 4"/>
+<path d="M 947.5 814 L 947.5 868" fill="none" stroke="#b91c1c" stroke-width="1.6" marker-end="url(#arrow)" stroke-dasharray="5 4"/>
+<path d="M 1090 466 L 1105 582" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<path d="M 1247.5 568 L 1247.5 514" fill="none" stroke="#b4530a" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+<path d="M 1247.5 514 L 1247.5 718" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 1247.5 814 L 1247.5 868" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 1390 466 L 1405 466" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 1547.5 514 L 1547.5 718" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 1547.5 814 L 1547.5 868" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1043.5" y="710" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b91c1c">链路断点</text>
+</svg>
+<figcaption>虎客好店是 XTools 一体云自带的微信小程序商城模块，数据全部落在 CRM 既有表内：商品取自产品表 hm_shop 字段，会员落成个人客户与联系人，下单生成分类为「来自虎客」的报价 / 预下单，经人工确认后转为订单并进入常规发货与回款流程。</figcaption>
+</figure>
+<div class="notes">
+
+<h2>图例与口径</h2>
+<table>
+<tr><th style="width:150px">标记</th><th>含义</th></tr>
+<tr><td>绿色框</td><td>OPEN API 已可读取，且已纳入本地镜像同步</td></tr>
+<tr><td>橙色框 / 橙色箭头</td><td>需人工操作，或本轮待建的环节</td></tr>
+<tr><td>红色虚线框与虚线箭头</td><td>链路断点：报价 / 预下单没有读取接口，数据取不到镜像库</td></tr>
+<tr><td>灰色框</td><td>当前未启用或未同步</td></tr>
+</table>
+
+<h2>关键事实（2026-09-19 核查）</h2>
+<table>
+<tr><th style="width:230px">项</th><th>数值与来源</th></tr>
+<tr><td>店铺</td><td>1 个：麦可旺志小程序店铺，介绍「色谱配件」；LOGO、背景图、咨询电话、邀约会员介绍文字未填（/sys/hookmember/shop/）</td></tr>
+<tr><td>上架商品</td><td>13 个，均为 COSMOSIL 成品色谱柱，售价字段为 0，仅成本价有值（镜像原始 JSON，按 hm_shop='上架' 统计）</td></tr>
+<tr><td>会员</td><td>联系人表 15 条「虎客会员…」；对应客户 11 条建于 2019-04、2 条建于 2026-01-26</td></tr>
+<tr><td>预下单</td><td>4 条，2026-01-26，合计 49.00 元（报价 / 预下单列表，分类「来自虎客」）</td></tr>
+<tr><td>转订单</td><td>ID 214 于 2026-01-26 11:18 确认生成订单 25501，该订单其后已删除，镜像与 CRM 一致</td></tr>
+<tr><td>分销佣金</td><td>0 条，未启用（/xcrm/contract/commission/）</td></tr>
+<tr><td>接口缺口</td><td>OPEN API 71 个接口中，报价单仅有写入（序号 20）与修改（序号 21），无读取接口</td></tr>
+</table>
+
+</div>
+</div>
+</body>
+</html>
