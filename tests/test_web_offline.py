@@ -693,10 +693,19 @@ def test_product_detail_merges_order_lines_by_order(tmp_path):
          "sum": "500.00", "who": "王勇尊", "date": f"{y}-07-02", "end_date": f"{y}-07-02", "money_type": "RMB",
          "goods": [{"id": "961", "prod": "[id:34]", "prod_name": "SP-100-8-C4-NP", "amount": "1.000", "un_price": "500", "sum": "500.00"}]},
     ]
+    purchases = [  # 一张采购单里同一型号两个批次、两种包装（正式库 CGMW2026082603522 的情形）
+        {"id": "7", "No.": f"CGMW{y}0826007", "title": "供应商A：填料", "cu_sn": "[id:0]", "cu_id": "3", "type": "1", "status0": "1", "status": "3", "money": "3010000.00", "amount_before_tax": "0", "backsum": "0.00",
+         "who": "高杨", "date": f"{y}-08-26", "money_type": "RMB", "money_rate": "100", "confirm": "2", "lib": "7", "memo": "",
+         "puritem": [{"id": "71", "prod": "260227AB-20kg/桶", "prod_name": "SP-100-8-C4-NP", "num": "80.000", "price": "21500.0000", "money": "1720000.00", "backnum": "0", "tax_rate": "13"},
+                     {"id": "72", "prod": "260114AB-20kg/桶", "prod_name": "SP-100-8-C4-NP", "num": "40.000", "price": "21500.0000", "money": "860000.00", "backnum": "0", "tax_rate": "13"},
+                     {"id": "73", "prod": "260114AB-10kg/桶", "prod_name": "SP-100-8-C4-NP", "num": "10.000", "price": "21500.0000", "money": "215000.00", "backnum": "0", "tax_rate": "13"}]},
+    ]
     store.upsert_raw("product", batches)
     store.upsert_normalized(SPEC_BY_DT["product"], batches)
     store.upsert_raw("contract", orders)
     store.upsert_normalized(SPEC_BY_DT["contract"], orders)
+    store.upsert_raw("purchase", purchases)
+    store.upsert_normalized(SPEC_BY_DT["purchase"], purchases)
     store.close()
     mirror = Mirror(path)
     conn = mirror.connect()
@@ -705,6 +714,12 @@ def test_product_detail_merges_order_lines_by_order(tmp_path):
 
     d = query(model="SP-100-8-C4-NP", months="0").product_detail()
     assert len(d["lines"]) == 4 and [o["order_id"] for o in d["orders"]] == [96, 95]   # 最新的单在前
+    # 采购记录同样按采购单合并：3 行合成 1 单，两个批次，同批次的行相邻
+    pu = [u for u in d["purchase_docs"] if u["purchase_id"] == 7][0]
+    assert len([l for l in d["purchases"] if l["purchase_id"] == 7]) == 3
+    assert pu["line_count"] == 3 and pu["batches"] == ["260227AB", "260114AB"] and pu["qty"] == 130.0 and pu["money"] == 2795000.0
+    assert pu["price"] == 21500.0 and pu["money_type"] == "RMB" and pu["supplier"]["id"] == 3
+    assert [(l["batch_idx"], l["pack"]) for l in pu["lines"]] == [(0, "20kg/桶"), (1, "20kg/桶"), (1, "10kg/桶")]
     one = d["orders"][0]
     assert one["line_count"] == 1 and one["batches"] == ["#34"] and one["lines"][0]["sn"] == ""   # 无编号产品退回 id
     multi = d["orders"][1]

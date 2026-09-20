@@ -687,11 +687,7 @@ class ReportQueries:
         top_customers = [{"customer": self.lk.customer(x["cu_sn"]), "count": x["n"], "amount": money(x["a"]), "qty": round(_num(x["q"]), 3), "last_date": x["d"]} for x in self.rows(
             f"SELECT o.cu_sn, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, MAX(o.date) d {base} GROUP BY o.cu_sn ORDER BY a DESC LIMIT 15", margs)]
         lines, orders = self._recent_order_lines(match, margs)
-        pmatch = match.replace("g.prod", "i.prod")
-        purchases = [{"purchase_id": x["id"], "no": x["no_"], "date": x["date"], "title": x["title"], "supplier": self.lk.supplier(x["cu_id"]), "qty": round(_num(x["num"]), 3), "price": money(x["price"]),
-                      "money": money(x["pmoney"]), "money_type": x["money_type"] or "RMB", "who": x["who"]} for x in self.rows(
-            "SELECT u.id, u.no_, u.date, u.title, u.cu_id, u.money_type, u.who, i.num, i.price, i.money pmoney FROM purchase_items i JOIN purchase u ON u.id = i.purchase_id "
-            f"WHERE u._deleted_at IS NULL AND {pmatch} ORDER BY u.date DESC, u.id DESC LIMIT 20", margs)]
+        purchases, purchase_docs = self._recent_purchase_lines(match.replace("g.prod", "i.prod"), margs)
         # 出库明细里产品用 pid 引用，少数旧单据只填了 prod（编号），两者都匹配
         lib_where = (("CAST(i.pid AS INTEGER) IN (SELECT id FROM product WHERE name = ?) OR i.prod IN (SELECT sn FROM product WHERE name = ? AND sn <> '')", [model, model])
                      if model else ("CAST(i.pid AS INTEGER) = ? OR i.prod IN (?, ?)", [prod["id"], prod.get("sn") or "\0", str(prod["id"])]))
@@ -710,56 +706,86 @@ class ReportQueries:
                                           "ORDER BY CAST(p.lnum AS REAL) DESC, s.last_date DESC NULLS LAST, p.sn", [start, model])]
         extras = [] if model else self.raw_extras("product", prod["id"], set(r.keys()))
         return {"product": product, "view": "model" if model else "batch", "window": window, "yearly": yearly, "monthly": monthly,
-                "top_customers": top_customers, "lines": lines, "orders": orders, "purchases": purchases, "libouts": libouts, "batches": batches, "extras": extras}
+                "top_customers": top_customers, "lines": lines, "orders": orders, "purchases": purchases, "purchase_docs": purchase_docs,
+                "libouts": libouts, "batches": batches, "extras": extras}
 
     RECENT_ORDERS = 25
+    RECENT_PURCHASES = 20
+
+    def _batch_of_line(self, prod_ref: Any, batchnum: Any) -> Tuple[Optional[int], str, str, Optional[str]]:
+        """明细行引用的产品 → (product_id, 编号, 生产批号, 包装)；无编号的产品退回明细里填的批号，再退回 #id。"""
+        p = self.lk.product(prod_ref)
+        sn = (p or {}).get("sn") or ""
+        batch, pack = split_sn(sn) if sn else ("", None)
+        if not batch:
+            batch = (batchnum or "").strip() or (f"#{p['id']}" if p else str(prod_ref or ""))
+        return (p or {}).get("id"), sn, batch, pack
+
+    @staticmethod
+    def _merge_doc_lines(lines: List[Dict[str, Any]], doc_key: str, head_keys: Tuple[str, ...], amount_key: str,
+                         price_key: str) -> List[Dict[str, Any]]:
+        """按单据合并明细行：一单一条，数量与金额合计，单价一致时给单价否则给区间；列出该单用到的批次并给每行标批次序号，
+        同一批次的行（不同包装）排在一起。lines 里的每个 dict 会被就地补上 batch_idx。"""
+        docs: List[Dict[str, Any]] = []
+        by_id: Dict[Any, Dict[str, Any]] = {}
+        for line in lines:
+            d = by_id.get(line[doc_key])
+            if d is None:
+                d = {k: line[k] for k in (doc_key, *head_keys)}
+                d.update({"qty": 0.0, amount_key: 0.0, "lines": [], "batches": []})
+                by_id[line[doc_key]] = d
+                docs.append(d)
+            d["qty"] += line["qty"]
+            d[amount_key] += line[amount_key]
+            if line["batch"] not in d["batches"]:
+                d["batches"].append(line["batch"])
+            line["batch_idx"] = d["batches"].index(line["batch"])
+            d["lines"].append(line)
+        for d in docs:
+            d["lines"].sort(key=lambda l: l["batch_idx"])
+            prices = sorted({l[price_key] for l in d["lines"]})
+            d[price_key] = prices[0] if len(prices) == 1 else None
+            d["price_min"], d["price_max"] = prices[0], prices[-1]
+            d["qty"] = round(d["qty"], 3)
+            d[amount_key] = round(d[amount_key], 2)
+            d["line_count"] = len(d["lines"])
+            d["batch_count"] = len(d["batches"])
+        return docs
 
     def _recent_order_lines(self, match: str, margs: List[Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """最近订单明细：先定最近 25 张订单，再取这些单里本产品（型号）的全部明细行，一行不漏；
-        另按单号合并成 orders —— 一单一行：合计数量与金额，单价一致时给单价，并列出该单用到的批次（生产批号），
-        每行标记其批次序号（batch_idx），前端据此给不同批次上不同底色。"""
+        """最近订单明细：先定最近 25 张订单，再取这些单里本产品（型号）的全部明细行，一行不漏；另按单号合并成 orders。"""
         sql = ("SELECT o.id, o.no_, o.date, o.cu_sn, o.who, o.status, g.prod, g.amount, g.un_price, g.sum gsum, g.batchnum, g.memo "
                "FROM contract_goods g JOIN contract o ON o.id = g.contract_id "
                f"WHERE o._deleted_at IS NULL AND {match} AND o.id IN ("
                f"  SELECT o.id FROM contract o WHERE o._deleted_at IS NULL AND EXISTS (SELECT 1 FROM contract_goods g WHERE g.contract_id = o.id AND {match}) "
                f"  ORDER BY o.date DESC, o.id DESC LIMIT {self.RECENT_ORDERS}) "
                "ORDER BY o.date DESC, o.id DESC, g._seq, g.id")
-        lines: List[Dict[str, Any]] = []
-        orders: List[Dict[str, Any]] = []
-        by_id: Dict[Any, Dict[str, Any]] = {}
+        lines = []
         for x in self.rows(sql, [*margs, *margs]):
-            p = self.lk.product(x["prod"])
-            sn = (p or {}).get("sn") or ""
-            batch, pack = split_sn(sn) if sn else ("", None)
-            if not batch:   # 无编号的产品：退回明细里填的批号，再退回产品 id
-                batch = (x["batchnum"] or "").strip() or (f"#{p['id']}" if p else str(x["prod"] or ""))
-            line = {"order_id": x["id"], "order_no": x["no_"], "date": x["date"], "customer": self.lk.customer(x["cu_sn"]), "who": x["who"],
-                    "qty": round(_num(x["amount"]), 3), "unit_price": money(x["un_price"]), "sum": money(x["gsum"]),
-                    "status_text": self.lk.text("contract", "status", x["status"]), "batchnum": x["batchnum"], "prod": x["prod"], "memo": x["memo"],
-                    "product_id": (p or {}).get("id"), "sn": sn, "batch": batch, "pack": pack}
-            lines.append(line)
-            o = by_id.get(x["id"])
-            if o is None:
-                o = {"order_id": x["id"], "order_no": x["no_"], "date": x["date"], "customer": line["customer"], "who": x["who"], "status_text": line["status_text"],
-                     "qty": 0.0, "sum": 0.0, "lines": [], "batches": []}
-                by_id[x["id"]] = o
-                orders.append(o)
-            o["qty"] += line["qty"]
-            o["sum"] += line["sum"]
-            if batch not in o["batches"]:
-                o["batches"].append(batch)
-            line["batch_idx"] = o["batches"].index(batch)
-            o["lines"].append(line)
-        for o in orders:
-            o["lines"].sort(key=lambda l: l["batch_idx"])   # 同一批次的行（不同包装）排在一起，稳定排序保留原顺序
-            prices = sorted({l["unit_price"] for l in o["lines"]})
-            o["unit_price"] = prices[0] if len(prices) == 1 else None
-            o["price_min"], o["price_max"] = prices[0], prices[-1]
-            o["qty"] = round(o["qty"], 3)
-            o["sum"] = round(o["sum"], 2)
-            o["line_count"] = len(o["lines"])
-            o["batch_count"] = len(o["batches"])
+            pid, sn, batch, pack = self._batch_of_line(x["prod"], x["batchnum"])
+            lines.append({"order_id": x["id"], "order_no": x["no_"], "date": x["date"], "customer": self.lk.customer(x["cu_sn"]), "who": x["who"],
+                          "qty": round(_num(x["amount"]), 3), "unit_price": money(x["un_price"]), "sum": money(x["gsum"]),
+                          "status_text": self.lk.text("contract", "status", x["status"]), "batchnum": x["batchnum"], "prod": x["prod"], "memo": x["memo"],
+                          "product_id": pid, "sn": sn, "batch": batch, "pack": pack})
+        orders = self._merge_doc_lines(lines, "order_id", ("order_no", "date", "customer", "who", "status_text"), "sum", "unit_price")
         return lines, orders
+
+    def _recent_purchase_lines(self, match: str, margs: List[Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """采购记录：最近 20 张采购单里本产品（型号）的全部明细行，另按采购单合并成 purchase_docs（同一单多批次 / 多包装时可展开）。"""
+        sql = ("SELECT u.id, u.no_, u.date, u.title, u.cu_id, u.money_type, u.who, i.prod, i.num, i.price, i.money pmoney, i.batchnum "
+               "FROM purchase_items i JOIN purchase u ON u.id = i.purchase_id "
+               f"WHERE u._deleted_at IS NULL AND {match} AND u.id IN ("
+               f"  SELECT u.id FROM purchase u WHERE u._deleted_at IS NULL AND EXISTS (SELECT 1 FROM purchase_items i WHERE i.purchase_id = u.id AND {match}) "
+               f"  ORDER BY u.date DESC, u.id DESC LIMIT {self.RECENT_PURCHASES}) "
+               "ORDER BY u.date DESC, u.id DESC, i._seq, i.id")
+        lines = []
+        for x in self.rows(sql, [*margs, *margs]):
+            pid, sn, batch, pack = self._batch_of_line(x["prod"], x["batchnum"])
+            lines.append({"purchase_id": x["id"], "no": x["no_"], "date": x["date"], "title": x["title"], "supplier": self.lk.supplier(x["cu_id"]),
+                          "qty": round(_num(x["num"]), 3), "price": money(x["price"]), "money": money(x["pmoney"]), "money_type": x["money_type"] or "RMB",
+                          "who": x["who"], "batchnum": x["batchnum"], "prod": x["prod"], "product_id": pid, "sn": sn, "batch": batch, "pack": pack})
+        docs = self._merge_doc_lines(lines, "purchase_id", ("no", "date", "title", "supplier", "money_type", "who"), "money", "price")
+        return lines, docs
 
     # ------------------------------------------------------------------ 采购与付款
     def purchase_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
