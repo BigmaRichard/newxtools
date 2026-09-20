@@ -161,6 +161,18 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 td.nowrap { white-space: nowrap; }
 tr.click { cursor: pointer; }
 tr.click:hover td { background: var(--surface-2); }
+/* 型号详情“最近订单明细”：一单一行，多批次的单可展开；同一批次同一底色（0.6.3） */
+:root { --bc0: #fff3bf; --bc1: #d0ebff; --bc2: #d3f9d8; --bc3: #e5dbff; --bc4: #ffe8cc; --bc5: #c5f6fa; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bc0: #5a4a10; --bc1: #1e3a5f; --bc2: #1f4a2c; --bc3: #3b2f66; --bc4: #5a3a12; --bc5: #134a52; } }
+.bc0 { --bc: var(--bc0); } .bc1 { --bc: var(--bc1); } .bc2 { --bc: var(--bc2); } .bc3 { --bc: var(--bc3); } .bc4 { --bc: var(--bc4); } .bc5 { --bc: var(--bc5); }
+.bchip { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 18px; margin: 1px 4px 1px 0; white-space: nowrap; background: var(--bc, var(--surface-2)); color: var(--text); font-variant-numeric: tabular-nums; }
+a.bchip:hover { text-decoration: none; box-shadow: 0 0 0 1px var(--border-strong) inset; }
+.fold { cursor: pointer; user-select: none; white-space: nowrap; color: var(--accent); font-weight: 500; }
+.fold .tri-fold { display: inline-block; width: 1em; transition: transform .15s; }
+.fold.open .tri-fold { transform: rotate(90deg); }
+tr.sub td { background: var(--bc, var(--surface-2)); font-size: 12px; padding-top: 4px; padding-bottom: 4px; border-bottom-color: var(--surface); }
+tr.sub td:first-child { padding-left: 22px; }
+tr.sub[hidden] { display: none !important; }
 .ellipsis { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 12px; background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); white-space: nowrap; }
 .tag.open { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
@@ -317,6 +329,7 @@ tr.total td { font-weight: 600; background: var(--surface-2); }
   table[data-cards] tbody tr { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; background: var(--surface-2); }
   table[data-cards] tbody td.lead { order: -1; }                               /* 卡片标题排到最上 */
   table[data-cards] tbody tr.total { background: var(--accent-soft); }
+  table[data-cards] tbody tr.sub { background: var(--bc, var(--surface-2)); }      /* 多批次订单展开后的每一行，整张小卡按批次上色 */
   table[data-cards] tbody tr.click:active { background: var(--accent-soft); }
   table[data-cards] tbody td { border: none; padding: 2px 0; display: flex; gap: 10px; align-items: baseline; text-align: left; white-space: normal; }
   table[data-cards] tbody td::before { content: attr(data-label); color: var(--muted); font-size: 12px; flex: 0 0 82px; }
@@ -1460,6 +1473,25 @@ async function pageContacts(view, params) {
 }
 
 // ------------------------------------------------------------------ 抽屉：产品 / 采购单（0.5）
+// 最近订单明细：一单一行（合计数量与金额），一单用了多个批次 / 多种包装时可展开看每一行；同一批次同一底色（0.6.3）
+const batchChip = (b, idx, pid) => pid ? `<a class="bchip bc${idx % 6}" data-prod="${pid}" title="生产批号，点开看该批号">${esc(b.startsWith('#') ? '无编号 ' + b : b)}</a>` : `<span class="bchip bc${idx % 6}" title="生产批号">${esc(b.startsWith('#') ? '无编号 ' + b : b)}</span>`;
+function orderLineRows(o, isModel) {
+  const multi = o.line_count > 1, first = o.lines[0];
+  const batchCell = !isModel ? '' : multi
+    ? `<td class="small fold" data-fold="${o.order_id}" title="展开 / 收起各批次明细"><span class="tri-fold">▸</span>${o.batch_count} 个批次 · ${o.line_count} 行<br>${o.batches.map((b, i) => batchChip(b, i)).join('')}</td>`
+    : `<td class="small">${esc(first.batch.startsWith('#') ? '无编号 ' + first.batch : first.batch)}${first.pack ? ` <span class="muted">${esc(first.pack)}</span>` : ''}</td>`;
+  const price = o.unit_price != null ? fmtMoney(o.unit_price) : `<span class="small" title="各行单价不同">${fmtMoney(o.price_min)}–${fmtMoney(o.price_max)}</span>`;
+  const main = `<tr${multi ? ` class="has-sub" data-ord="${o.order_id}"` : ''}><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${orderLink(o.order_id, o.order_no)}</td><td class="lead">${custLink(o.customer)}</td>${batchCell}<td class="num">${fmtInt(o.qty)}${multi ? ' <span class="muted small">合计</span>' : ''}</td><td class="num">${price}</td><td class="num">${fmtMoney(o.sum)}</td><td class="small">${esc(o.status_text)}</td><td class="nowrap">${esc(o.who)}</td></tr>`;
+  if (!multi) return main;
+  return main + o.lines.map((l) => `<tr class="sub bc${l.batch_idx % 6}" data-sub="${o.order_id}" hidden><td></td><td></td><td class="small">${isModel ? '' : `${batchChip(l.batch, l.batch_idx, l.product_id)}${l.pack ? ` <span class="muted">${esc(l.pack)}</span>` : ''}`}</td>${isModel ? `<td class="small">${batchChip(l.batch, l.batch_idx, l.product_id)}${l.pack ? ` <span class="muted">${esc(l.pack)}</span>` : ''}</td>` : ''}<td class="num">${fmtInt(l.qty)}</td><td class="num">${fmtMoney(l.unit_price)}</td><td class="num">${fmtMoney(l.sum)}</td><td class="small muted">${esc(l.batchnum && l.batchnum !== l.batch ? '批号 ' + l.batchnum : '')}</td><td></td></tr>`).join('');
+}
+function bindFolds(root) {
+  root.querySelectorAll('[data-fold]').forEach((td) => td.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = td.classList.toggle('open');
+    root.querySelectorAll(`tr[data-sub="${td.dataset.fold}"]`).forEach((tr) => { tr.hidden = !open; });
+  }));
+}
 async function openProduct(key) {
   openDrawer('产品', '<div class="empty">加载中…</div>');
   try {
@@ -1498,8 +1530,8 @@ async function openProduct(key) {
       <h3>近 24 个月</h3>${miniBars(d.monthly.map((m) => m.amount), '', d.monthly.map((m) => `${m.month}：${fmtMoney(m.amount)} · ${fmtInt(m.qty)} · ${m.count} 单`))}
       <h3>客户 Top 15 <span class="muted">全部年份</span></h3>
       ${d.top_customers.length ? `<table><thead><tr><th>客户</th><th class="num">金额</th><th class="num">数量</th><th class="num">单数</th><th>最近</th></tr></thead><tbody>${d.top_customers.map((c) => `<tr><td>${custLink(c.customer)}</td><td class="num">${fmtMoney(c.amount)}</td><td class="num">${fmtInt(c.qty)}</td><td class="num">${c.count}</td><td class="nowrap small">${esc(c.last_date)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
-      <h3>最近订单明细 <span class="muted">${d.lines.length} 行</span></h3>
-      ${d.lines.length ? `<table><thead><tr><th>日期</th><th>单号</th><th>客户</th>${isModel ? '<th>批号</th>' : ''}<th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th>状态</th><th>业务员</th></tr></thead><tbody>${d.lines.map((l) => `<tr><td class="nowrap">${esc(l.date)}</td><td class="nowrap">${orderLink(l.order_id, l.order_no)}</td><td class="lead">${custLink(l.customer)}</td>${isModel ? `<td class="small">${esc(l.prod || '')}</td>` : ''}<td class="num">${fmtInt(l.qty)}</td><td class="num">${fmtMoney(l.unit_price)}</td><td class="num">${fmtMoney(l.sum)}</td><td class="small">${esc(l.status_text)}</td><td class="nowrap">${esc(l.who)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
+      <h3>最近订单明细 <span class="muted">${d.orders.length} 单 · ${d.lines.length} 行${d.orders.some((o) => o.line_count > 1) ? ' · 多批次的单点“批次”可展开' : ''}</span></h3>
+      ${d.orders.length ? `<table><thead><tr><th>日期</th><th>单号</th><th>客户</th>${isModel ? '<th>批次</th>' : ''}<th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th>状态</th><th>业务员</th></tr></thead><tbody>${d.orders.map((o) => orderLineRows(o, isModel)).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       <h3>采购记录 <span class="muted">${d.purchases.length} 行</span></h3>
       ${d.purchases.length ? `<table><thead><tr><th>日期</th><th>采购单</th><th>供应商</th><th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th>经办</th></tr></thead><tbody>${d.purchases.map((u) => `<tr><td class="nowrap">${esc(u.date)}</td><td class="small"><a data-purchase="${u.purchase_id}">${esc(u.no)}</a></td><td>${u.supplier ? custLink(u.supplier) : '—'}</td><td class="num">${fmtInt(u.qty)}</td><td class="num">${fmtMoney(u.price)}</td><td class="num">${fmtMoney(u.money)} <span class="muted small">${esc(u.money_type)}</span></td><td class="nowrap">${esc(u.who)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       <h3>出库记录 <span class="muted">${d.libouts.length} 行</span></h3>
@@ -1509,6 +1541,7 @@ async function openProduct(key) {
     stack[stack.length - 1].title = title; stack[stack.length - 1].html = html;
     $('#drawerTitle').innerHTML = title; $('#drawerBody').innerHTML = html;
     $('#drawerBody').querySelectorAll('tr[data-batch]').forEach((tr) => tr.addEventListener('click', () => openProduct(tr.dataset.batch)));
+    bindFolds($('#drawerBody'));
     bindLinks($('#drawerBody'));
   } catch (e) { $('#drawerBody').innerHTML = `<div class="error">${esc(e.message)}</div>`; }
 }

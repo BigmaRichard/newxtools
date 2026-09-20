@@ -662,3 +662,58 @@ def test_actions_duplicate_detection(tmp_path):
     only = query(size=80, from_="2000-01-01", dup_min=75).actions()
     assert only["total"] >= 1 and all(r["dup"]["ratio"] >= 0.75 for r in only["rows"])
     assert only["dup_scanned"] > 0 and 9002 in [r["id"] for r in only["rows"]]
+
+
+def test_product_detail_merges_order_lines_by_order(tmp_path):
+    """型号详情的最近订单明细按单号合并：一单一行（合计数量与金额），多批次 / 多包装的行挂在该单下并标批次序号。"""
+    from web.reports import split_sn
+
+    assert split_sn("260114AB-20kg/桶") == ("260114AB", "20kg/桶")
+    assert split_sn("0.8kg/桶-240518EA") == ("240518EA", "0.8kg/桶")       # 包装段在前的老编号
+    assert split_sn("100g/桶---221219AK") == ("221219AK", "100g/桶")
+    assert split_sn("08086-31") == ("08086-31", None) and split_sn("") == ("", None)
+
+    path = tmp_path / "merge.sqlite"
+    store = Store(path)
+    seed(store)
+    y = str(THIS_YEAR)
+    batches = [
+        {"id": "31", "sn": "260114AB-20kg/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "公斤", "price": "8800.0000", "status": "正常", "class": "制备色谱填料", "lnum": "10.000", "ldown": "0.000", "moddate": "2026-01-01"},
+        {"id": "32", "sn": "260114AB-10kg/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "公斤", "price": "8800.0000", "status": "正常", "class": "制备色谱填料", "lnum": "10.000", "ldown": "0.000", "moddate": "2026-01-01"},
+        {"id": "33", "sn": "260227AB-20kg/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "公斤", "price": "8800.0000", "status": "正常", "class": "制备色谱填料", "lnum": "10.000", "ldown": "0.000", "moddate": "2026-01-01"},
+        {"id": "34", "sn": "", "name": "SP-100-8-C4-NP", "model": "-", "unit": "公斤", "price": "0.0000", "status": "正常", "class": "制备色谱填料", "lnum": "0.000", "ldown": "0.000", "moddate": "2026-01-01"},
+    ]
+    orders = [
+        {"id": "95", "No.": f"mw{y}0701095", "subject": "两个批次三种包装", "cu_sn": "[id:1]", "type": "1", "status": "2", "confirm": "2", "st_send": "4",
+         "sum": "9000.00", "who": "王勇尊", "date": f"{y}-07-01", "end_date": f"{y}-07-01", "money_type": "RMB",
+         "goods": [{"id": "951", "prod": "260114AB-20kg/桶", "prod_name": "SP-100-8-C4-NP", "amount": "1.000", "un_price": "4000", "sum": "4000.00"},
+                   {"id": "952", "prod": "260227AB-20kg/桶", "prod_name": "SP-100-8-C4-NP", "amount": "1.000", "un_price": "4000", "sum": "4000.00"},
+                   {"id": "953", "prod": "260114AB-10kg/桶", "prod_name": "SP-100-8-C4-NP", "amount": "0.500", "un_price": "2000", "sum": "1000.00"}]},
+        {"id": "96", "No.": f"mw{y}0702096", "subject": "无编号引用", "cu_sn": "[id:2]", "type": "1", "status": "1", "confirm": "2", "st_send": "4",
+         "sum": "500.00", "who": "王勇尊", "date": f"{y}-07-02", "end_date": f"{y}-07-02", "money_type": "RMB",
+         "goods": [{"id": "961", "prod": "[id:34]", "prod_name": "SP-100-8-C4-NP", "amount": "1.000", "un_price": "500", "sum": "500.00"}]},
+    ]
+    store.upsert_raw("product", batches)
+    store.upsert_normalized(SPEC_BY_DT["product"], batches)
+    store.upsert_raw("contract", orders)
+    store.upsert_normalized(SPEC_BY_DT["contract"], orders)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    d = query(model="SP-100-8-C4-NP", months="0").product_detail()
+    assert len(d["lines"]) == 4 and [o["order_id"] for o in d["orders"]] == [96, 95]   # 最新的单在前
+    one = d["orders"][0]
+    assert one["line_count"] == 1 and one["batches"] == ["#34"] and one["lines"][0]["sn"] == ""   # 无编号产品退回 id
+    multi = d["orders"][1]
+    assert multi["line_count"] == 3 and multi["batch_count"] == 2 and multi["batches"] == ["260114AB", "260227AB"]
+    assert multi["qty"] == 2.5 and multi["sum"] == 9000.0
+    assert multi["unit_price"] is None and (multi["price_min"], multi["price_max"]) == (2000.0, 4000.0)   # 各行单价不同
+    # 同一批次的行排在一起，并带批次序号与包装
+    assert [(l["batch_idx"], l["batch"], l["pack"]) for l in multi["lines"]] == [(0, "260114AB", "20kg/桶"), (0, "260114AB", "10kg/桶"), (1, "260227AB", "20kg/桶")]
+    assert multi["lines"][0]["product_id"] == 31 and multi["lines"][1]["product_id"] == 32
+    # 单个批号视图只带该批号的行，同样按单合并
+    b = query(sn="260114AB-20kg/桶").product_detail()
+    assert [o["order_id"] for o in b["orders"]] == [95] and b["orders"][0]["line_count"] == 1 and b["orders"][0]["unit_price"] == 4000.0

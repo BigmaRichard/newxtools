@@ -33,14 +33,28 @@ UNIT_ALIAS = {"kg": "kg", "g": "g", "mg": "mg", "t": "t", "l": "L", "ml": "mL"}
 BULK_CLASS_HINTS = ("填料", "介质", "凝胶", "树脂")
 
 
-def pack_spec(sn: Optional[str]) -> Optional[str]:
-    """从产品编号末段解析包装规格（20kg/桶、500g/瓶、1kg）；解析不出返回 None。"""
-    for part in reversed((sn or "").replace("／", "/").split("-")):
-        m = PACK_RE.match(part.strip())
+def split_sn(sn: Optional[str]) -> Tuple[str, Optional[str]]:
+    """产品编号拆成（生产批号, 包装规格）：260114AB-20kg/桶 → ("260114AB", "20kg/桶")；包装段在前的 0.8kg/桶-240518EA 也认；
+    没有包装段时批号就是整个编号，包装为 None。"""
+    parts = (sn or "").replace("／", "/").split("-")
+    for i in range(len(parts) - 1, -1, -1):
+        m = PACK_RE.match(parts[i].strip())
         if m:
             unit = UNIT_ALIAS.get(m.group(2).lower(), m.group(2))
-            return f"{m.group(1)}{unit}" + (f"/{m.group(3)}" if m.group(3) else "")
-    return None
+            pack = f"{m.group(1)}{unit}" + (f"/{m.group(3)}" if m.group(3) else "")
+            batch = "-".join(parts[:i] + parts[i + 1:]).strip("- ")
+            return batch, pack
+    return (sn or "").strip(), None
+
+
+def pack_spec(sn: Optional[str]) -> Optional[str]:
+    """从产品编号解析包装规格（20kg/桶、500g/瓶、1kg）；解析不出返回 None。"""
+    return split_sn(sn)[1]
+
+
+def batch_of(sn: Optional[str]) -> str:
+    """产品编号去掉包装段后的生产批号；没有包装段就是整个编号。"""
+    return split_sn(sn)[0]
 
 
 def unit_of(unit: Optional[str], class_: Optional[str]) -> Tuple[str, bool]:
@@ -672,10 +686,7 @@ class ReportQueries:
         monthly = [{"month": m, "count": (got.get(m) or {}).get("n") or 0, "amount": money((got.get(m) or {}).get("a")), "qty": round(_num((got.get(m) or {}).get("q")), 3)} for m in month_range(self.today.strftime("%Y-%m"), 24)]
         top_customers = [{"customer": self.lk.customer(x["cu_sn"]), "count": x["n"], "amount": money(x["a"]), "qty": round(_num(x["q"]), 3), "last_date": x["d"]} for x in self.rows(
             f"SELECT o.cu_sn, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, MAX(o.date) d {base} GROUP BY o.cu_sn ORDER BY a DESC LIMIT 15", margs)]
-        lines = [{"order_id": x["id"], "order_no": x["no_"], "date": x["date"], "customer": self.lk.customer(x["cu_sn"]), "who": x["who"], "qty": round(_num(x["amount"]), 3), "unit_price": money(x["un_price"]),
-                  "sum": money(x["gsum"]), "status_text": self.lk.text("contract", "status", x["status"]), "batchnum": x["batchnum"], "prod": x["prod"], "memo": x["memo"]} for x in self.rows(
-            "SELECT o.id, o.no_, o.date, o.cu_sn, o.who, o.status, g.prod, g.amount, g.un_price, g.sum gsum, g.batchnum, g.memo FROM contract_goods g JOIN contract o ON o.id = g.contract_id "
-            f"WHERE o._deleted_at IS NULL AND {match} ORDER BY o.date DESC, o.id DESC LIMIT 40", margs)]
+        lines, orders = self._recent_order_lines(match, margs)
         pmatch = match.replace("g.prod", "i.prod")
         purchases = [{"purchase_id": x["id"], "no": x["no_"], "date": x["date"], "title": x["title"], "supplier": self.lk.supplier(x["cu_id"]), "qty": round(_num(x["num"]), 3), "price": money(x["price"]),
                       "money": money(x["pmoney"]), "money_type": x["money_type"] or "RMB", "who": x["who"]} for x in self.rows(
@@ -699,7 +710,56 @@ class ReportQueries:
                                           "ORDER BY CAST(p.lnum AS REAL) DESC, s.last_date DESC NULLS LAST, p.sn", [start, model])]
         extras = [] if model else self.raw_extras("product", prod["id"], set(r.keys()))
         return {"product": product, "view": "model" if model else "batch", "window": window, "yearly": yearly, "monthly": monthly,
-                "top_customers": top_customers, "lines": lines, "purchases": purchases, "libouts": libouts, "batches": batches, "extras": extras}
+                "top_customers": top_customers, "lines": lines, "orders": orders, "purchases": purchases, "libouts": libouts, "batches": batches, "extras": extras}
+
+    RECENT_ORDERS = 25
+
+    def _recent_order_lines(self, match: str, margs: List[Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """最近订单明细：先定最近 25 张订单，再取这些单里本产品（型号）的全部明细行，一行不漏；
+        另按单号合并成 orders —— 一单一行：合计数量与金额，单价一致时给单价，并列出该单用到的批次（生产批号），
+        每行标记其批次序号（batch_idx），前端据此给不同批次上不同底色。"""
+        sql = ("SELECT o.id, o.no_, o.date, o.cu_sn, o.who, o.status, g.prod, g.amount, g.un_price, g.sum gsum, g.batchnum, g.memo "
+               "FROM contract_goods g JOIN contract o ON o.id = g.contract_id "
+               f"WHERE o._deleted_at IS NULL AND {match} AND o.id IN ("
+               f"  SELECT o.id FROM contract o WHERE o._deleted_at IS NULL AND EXISTS (SELECT 1 FROM contract_goods g WHERE g.contract_id = o.id AND {match}) "
+               f"  ORDER BY o.date DESC, o.id DESC LIMIT {self.RECENT_ORDERS}) "
+               "ORDER BY o.date DESC, o.id DESC, g._seq, g.id")
+        lines: List[Dict[str, Any]] = []
+        orders: List[Dict[str, Any]] = []
+        by_id: Dict[Any, Dict[str, Any]] = {}
+        for x in self.rows(sql, [*margs, *margs]):
+            p = self.lk.product(x["prod"])
+            sn = (p or {}).get("sn") or ""
+            batch, pack = split_sn(sn) if sn else ("", None)
+            if not batch:   # 无编号的产品：退回明细里填的批号，再退回产品 id
+                batch = (x["batchnum"] or "").strip() or (f"#{p['id']}" if p else str(x["prod"] or ""))
+            line = {"order_id": x["id"], "order_no": x["no_"], "date": x["date"], "customer": self.lk.customer(x["cu_sn"]), "who": x["who"],
+                    "qty": round(_num(x["amount"]), 3), "unit_price": money(x["un_price"]), "sum": money(x["gsum"]),
+                    "status_text": self.lk.text("contract", "status", x["status"]), "batchnum": x["batchnum"], "prod": x["prod"], "memo": x["memo"],
+                    "product_id": (p or {}).get("id"), "sn": sn, "batch": batch, "pack": pack}
+            lines.append(line)
+            o = by_id.get(x["id"])
+            if o is None:
+                o = {"order_id": x["id"], "order_no": x["no_"], "date": x["date"], "customer": line["customer"], "who": x["who"], "status_text": line["status_text"],
+                     "qty": 0.0, "sum": 0.0, "lines": [], "batches": []}
+                by_id[x["id"]] = o
+                orders.append(o)
+            o["qty"] += line["qty"]
+            o["sum"] += line["sum"]
+            if batch not in o["batches"]:
+                o["batches"].append(batch)
+            line["batch_idx"] = o["batches"].index(batch)
+            o["lines"].append(line)
+        for o in orders:
+            o["lines"].sort(key=lambda l: l["batch_idx"])   # 同一批次的行（不同包装）排在一起，稳定排序保留原顺序
+            prices = sorted({l["unit_price"] for l in o["lines"]})
+            o["unit_price"] = prices[0] if len(prices) == 1 else None
+            o["price_min"], o["price_max"] = prices[0], prices[-1]
+            o["qty"] = round(o["qty"], 3)
+            o["sum"] = round(o["sum"], 2)
+            o["line_count"] = len(o["lines"])
+            o["batch_count"] = len(o["batches"])
+        return lines, orders
 
     # ------------------------------------------------------------------ 采购与付款
     def purchase_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
