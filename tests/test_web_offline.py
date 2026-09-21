@@ -756,3 +756,38 @@ def test_product_detail_merges_order_lines_by_order(tmp_path):
     # 单个批号视图只带该批号的行，同样按单合并
     b = query(sn="260114AB-20kg/桶").product_detail()
     assert [o["order_id"] for o in b["orders"]] == [95] and b["orders"][0]["line_count"] == 1 and b["orders"][0]["unit_price"] == 4000.0
+
+
+def test_severe_overdue_customer_tag(tmp_path):
+    """严重逾期：客户名下有逾期超过 90 天的未回款计划，所有输出客户对象的地方都带 severe 标记；没有的为 None。"""
+    path = tmp_path / "severe.sqlite"
+    store = Store(path)
+    seed(store)
+    old = [{"id": "9", "date": f"{THIS_YEAR - 1}-01-01", "serial": "2", "money": "300.00", "status": "2", "who": "M9", "cu_sn": "[id:1]", "co_sn": f"mw{THIS_YEAR}0301011", "memo": "老欠款"},
+           {"id": "10", "date": f"{THIS_YEAR - 2}-06-01", "serial": "3", "money": "200.00", "status": "4", "who": "M9", "cu_sn": "1302", "co_sn": f"mw{THIS_YEAR}0101010", "memo": "按 sn 挂客户"}]
+    store.upsert_raw("gathering", old)
+    store.upsert_normalized(SPEC_BY_DT["gathering"], old)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    # 客户 1：两期老欠款（一期按 [id:1]、一期按 sn 1302 挂）；种子里 4 月 1 日那期 2000 元只在跑测试当天已逾期超 90 天时才算进来
+    seed_hit = (TODAY - __import__("datetime").date(THIS_YEAR, 4, 1)).days > 90
+    n, amt = (3, 2500.0) if seed_hit else (2, 500.0)
+    sev = lk.customer("[id:1]")["severe"]
+    assert sev and sev["count"] == n and sev["amount"] == amt and sev["since"] == f"{THIS_YEAR - 2}-06-01" and sev["days"] > 365
+    assert lk.customer("[id:2]")["severe"] is None               # 客户 2 只有未到期的计划
+    assert lk.customer("[id:3]")["severe"] is None               # 没有回款计划
+    assert lk.severe(1, __import__("datetime").date(THIS_YEAR - 2, 7, 1)) is None   # 站在两年前看，逾期不到 90 天
+    # 客户列表、客户详情、订单详情、联系人、销售分析（按客户）、应收计划都带同一个标记
+    rows = {r["id"]: r for r in query().customers()["rows"]}
+    assert rows[1]["severe"]["count"] == n and rows[2]["severe"] is None
+    assert query().customer_detail(1)["customer"]["severe"]["count"] == n
+    assert query().order_detail(11)["order"]["customer"]["severe"]["count"] == n
+    assert [k for k in query(q="张三").contacts()["rows"]][0]["customer"]["severe"]["count"] == n
+    sales = {r["id"]: r for r in query(by="customer", years=THIS_YEAR).sales()["rows"]}
+    assert sales[1]["customer"]["severe"]["count"] == n
+    plans = query(status="open").receivables()["rows"]
+    assert any(p["customer"]["id"] == 1 and p["customer"]["severe"] for p in plans)

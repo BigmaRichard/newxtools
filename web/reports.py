@@ -328,7 +328,7 @@ class ReportQueries:
         def cust(cid: int) -> Dict[str, Any]:
             c = self.lk.customers.get(cid) or {}
             return {"id": cid, "name": c.get("cu_name") or c.get("m_name") or f"[已删除 {cid}]", "owner": self.lk.user_name(c.get("owner")), "owner_part": c.get("owner"),
-                    "life_text": self.lk.text("customer", "life", c.get("life")), "city": c.get("city") or ""}
+                    "life_text": self.lk.text("customer", "life", c.get("life")), "city": c.get("city") or "", "severe": self.lk.severe(cid, today)}
 
         if owner:
             facts = [f for f in facts if str((self.lk.customers.get(f["cid"]) or {}).get("owner") or "") == owner]
@@ -1087,7 +1087,7 @@ class ReportQueries:
             "missing": not any(k.get(f) for f in ("mphone", "phone", "weixin", "qq", "email")),
             "customer": {
                 "id": k.get("customer_id"), "name": k.get("cu_name") or k.get("m_name") or "", "owner": self.lk.user_name(k.get("owner")),
-                "created": k.get("creatdate") or "", "life": self.lk.text("customer", "life", k.get("life")),
+                "created": k.get("creatdate") or "", "life": self.lk.text("customer", "life", k.get("life")), "severe": self.lk.severe(k.get("customer_id"), self.today),
                 "contacts": k.get("cust_contacts") or 0, "amount": k.get("cust_amount") or 0.0, "orders": k.get("cust_orders") or 0,
                 # 这家客户里最近还有工作日志的是谁——不是本人就说明对接人可能换了
                 "latest_contact_name": k.get("cust_latest_name") or "", "latest_contact_date": k.get("cust_latest_date") or "",

@@ -43,7 +43,7 @@ from sync.specs import CONTRACT_CUSTOM_FIELDS
 from sync.store import col_name
 from web.auth import AccessControl
 from web.export import EXPORT_MAX, Download, build_export
-from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries
+from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries, _num
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("xtools.web")
@@ -79,6 +79,7 @@ def _merge_spans(spans: List[Tuple[int, int]]) -> List[List[int]]:
             out.append([start, size])
     return out
 OPEN_PLAN = ("2", "4")  # gathering.status 未回 / 部分回款
+SEVERE_DAYS = 90        # 未回款计划逾期超过这么多天，客户标“严重逾期”（Richard 口径）
 DICT_FIELDS = {
     "contract": ["status", "type", "confirm", "st_send", "pay_mode", "payment", *CONTRACT_CUSTOM_FIELDS],
     "gathering": ["status"],
@@ -166,6 +167,12 @@ class Lookups:
             {"name": r["who"], "orders": r["n"], "part": self.name_to_part.get(r["who"])}
             for r in conn.execute("SELECT who, COUNT(*) n FROM contract WHERE _deleted_at IS NULL AND who <> '' GROUP BY who ORDER BY n DESC")
         ]
+        # 每个客户的未回款计划（未回 / 部分回款，按计划日期），用于“严重逾期”标记：逾期天数在取用时按当天算，不随对照表缓存过期
+        self.open_plans: Dict[int, List[Tuple[str, float]]] = {}
+        for r in conn.execute(f"SELECT cu_sn, date, money FROM gathering WHERE _deleted_at IS NULL AND status IN ({','.join(repr(x) for x in OPEN_PLAN)}) AND date LIKE '____-__-__'"):
+            cid = self.customer_id(r["cu_sn"])
+            if cid is not None:
+                self.open_plans.setdefault(cid, []).append((r["date"], _num(r["money"])))
         self._load_product_classes(conn)
         self._load_states()
         self.loaded_at = time.time()
@@ -323,6 +330,24 @@ class Lookups:
             return int(key)
         return self.key_to_id.get(key)
 
+    def severe(self, cid: Any, today: Optional[dt.date] = None) -> Optional[Dict[str, Any]]:
+        """客户是否“严重逾期”：名下有逾期超过 SEVERE_DAYS 天的未回款计划。返回 {days 最久逾期天数, amount 这些期的金额, count 期数, since 最早计划日期}，否则 None。"""
+        plans = self.open_plans.get(_int(cid, 0)) if cid is not None else None
+        if not plans:
+            return None
+        today = today or dt.date.today()
+        hits = []
+        for date, amount in plans:
+            try:
+                days = (today - dt.date.fromisoformat(date)).days
+            except ValueError:
+                continue
+            if days > SEVERE_DAYS:
+                hits.append((days, amount, date))
+        if not hits:
+            return None
+        return {"days": max(h[0] for h in hits), "amount": round(sum(h[1] for h in hits), 2), "count": len(hits), "since": min(h[2] for h in hits)}
+
     def customer(self, key: Any, numeric_is_id: bool = False) -> Optional[Dict[str, Any]]:
         cid = self.customer_id(key, numeric_is_id)
         if cid is None:
@@ -330,7 +355,8 @@ class Lookups:
         c = self.customers.get(cid)
         if not c:
             return {"id": cid, "name": f"[已删除 {cid}]", "owner": None}
-        return {"id": cid, "name": c["cu_name"] or c["m_name"] or f"[id:{cid}]", "owner": self.user_name(c["owner"]), "life": self.text("customer", "life", c["life"])}
+        return {"id": cid, "name": c["cu_name"] or c["m_name"] or f"[id:{cid}]", "owner": self.user_name(c["owner"]), "life": self.text("customer", "life", c["life"]),
+                "severe": self.severe(cid)}
 
     def user_name(self, part: Any) -> str:
         if part is None:
@@ -710,7 +736,7 @@ class Query(ReportQueries):
     def customer_row(self, c: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": c["id"], "sn": c.get("sn"), "name": c.get("cu_name") or c.get("m_name"), "short": c.get("m_name"),
-            "owner": self.lk.user_name(c.get("owner")), "owner_part": c.get("owner"),
+            "owner": self.lk.user_name(c.get("owner")), "owner_part": c.get("owner"), "severe": self.lk.severe(c["id"], self.today),
             "life_text": self.lk.text("customer", "life", c.get("life")), "type_text": self.lk.text("customer", "type", c.get("type")),
             "stage_text": self.lk.text("customer", "cu_status", c.get("cu_status")), "industry_text": self.lk.text("customer", "industry", c.get("industry")),
             "city": c.get("city"), "created": c.get("creatdate"), "modified": c.get("moddate"), "tel": c.get("tel"), "address": c.get("address"),

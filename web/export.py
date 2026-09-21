@@ -52,9 +52,19 @@ CUSTOMER_COLS: List[Col] = [
     ("周期", lambda r: r.get("life_text")), ("类型", lambda r: r.get("type_text")), ("阶段", lambda r: r.get("stage_text")), ("行业", lambda r: r.get("industry_text")),
     ("城市", lambda r: r.get("city")), ("电话", lambda r: r.get("tel")), ("地址", lambda r: r.get("address")), ("创建", lambda r: r.get("created")), ("修改", lambda r: r.get("modified")),
     ("订单数", lambda r: r.get("orders")), ("订单额", lambda r: _num(r.get("order_amount"))), ("最近订单", lambda r: r.get("last_order")), ("回款额", lambda r: _num(r.get("receipts"))), ("联系人数", lambda r: r.get("contacts")),
+    ("严重逾期", lambda r: _severe(r)),
 ]
+
+
+def _severe(r: Dict[str, Any]) -> str:
+    """客户对象上的严重逾期标记 → “最久 N 天 · M 期 金额”；没有为空。"""
+    c = r.get("customer") if isinstance(r.get("customer"), dict) else r
+    s = c.get("severe")
+    return f"最久 {s['days']} 天 · {s['count']} 期 {s['amount']:,.0f}" if s else ""
+
+
 RECEIVABLE_COLS: List[Col] = [
-    ("计划日期", lambda r: r.get("date")), ("客户", _cust()), ("订单号", lambda r: r.get("order_no")), ("期次", lambda r: r.get("serial")), ("金额", lambda r: _num(r.get("amount"))),
+    ("计划日期", lambda r: r.get("date")), ("客户", _cust()), ("严重逾期", lambda r: _severe(r)), ("订单号", lambda r: r.get("order_no")), ("期次", lambda r: r.get("serial")), ("金额", lambda r: _num(r.get("amount"))),
     ("状态", lambda r: r.get("status_text")), ("逾期天数", lambda r: r.get("overdue_days")), ("业务员", lambda r: r.get("who")), ("备注", lambda r: r.get("memo")),
 ]
 RECEIVABLE_WHO_COLS: List[Col] = [
