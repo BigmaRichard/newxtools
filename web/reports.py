@@ -701,10 +701,53 @@ class ReportQueries:
                        for x in self.rows(f"{self.PRODUCT_SALES_CTE} SELECT p.id, p.sn, p.unit, p.class, p.status, p.model, CAST(p.lnum AS REAL) stock, p.ldown, s.n, s.a, s.q, s.last_date "
                                           "FROM product p LEFT JOIN s ON s.pid = p.id WHERE p._deleted_at IS NULL AND p.name = ? "
                                           "ORDER BY CAST(p.lnum AS REAL) DESC, s.last_date DESC NULLS LAST, p.sn", [start, model])]
+        batch_groups = self._group_batches(batches, start) if model else []
         extras = [] if model else self.raw_extras("product", prod["id"], set(r.keys()))
         return {"product": product, "view": "model" if model else "batch", "window": window, "yearly": yearly, "monthly": monthly,
                 "top_customers": top_customers, "lines": lines, "orders": orders, "purchases": purchases, "purchase_docs": purchase_docs,
-                "libouts": libouts, "libout_docs": libout_docs, "batches": batches, "extras": extras}
+                "libouts": libouts, "libout_docs": libout_docs, "batches": batches, "batch_groups": batch_groups, "extras": extras}
+
+    def _group_batches(self, batches: List[Dict[str, Any]], start: str) -> List[Dict[str, Any]]:
+        """型号下的批号记录按货号（生产批号）归并：260114AB-10kg/桶 与 260114AB-20kg/桶 是同一货号的两种包装，合成一行——
+        库存、销售额、数量相加，单数按订单去重，最近销售取最晚；各包装记录挂在 packs 下（每条带 pack_idx）。
+        计量单位按有库存的包装记录判断，单位不一时 units > 1。"""
+        groups: List[Dict[str, Any]] = []
+        by_key: Dict[str, Dict[str, Any]] = {}
+        for b in batches:
+            key = batch_of(b["sn"]) or f"#{b['id']}"
+            b["batch"] = key
+            g = by_key.get(key)
+            if g is None:
+                g = {"batch": key, "packs": []}
+                by_key[key] = g
+                groups.append(g)
+            b["pack_idx"] = len(g["packs"])
+            g["packs"].append(b)
+        for g in groups:
+            packs = g["packs"]
+            g["pack_count"] = len(packs)
+            g["stock"] = round(sum(p["stock"] for p in packs), 3)
+            g["stock_low"] = any(p["stock_low"] for p in packs)
+            in_stock = [p for p in packs if p["stock"] > 0] or packs
+            main = max(in_stock, key=lambda p: p["stock"])
+            g["unit"], g["unit_assumed"] = main["unit"], main["unit_assumed"]
+            g["units"] = len({p["unit"] for p in packs if p["stock"] > 0 and p["unit"]})
+            g["status"] = " / ".join(dict.fromkeys(p["status"] or "" for p in packs if p["status"]))
+            g["sales_amount"] = round(sum(p["sales_amount"] for p in packs), 2)
+            g["sales_qty"] = round(sum(p["sales_qty"] for p in packs), 3)
+            g["last_sale"] = max((p["last_sale"] for p in packs if p["last_sale"]), default=None)
+            if len(packs) == 1:
+                g["sales_orders"] = packs[0]["sales_orders"]
+            else:   # 同一单可能同时买了几种包装，单数要按订单去重
+                keys = [p["sn"] for p in packs if p["sn"]] + [f"[id:{p['id']}]" for p in packs]
+                r = self.one(f"SELECT COUNT(DISTINCT o.id) n FROM contract_goods g JOIN contract o ON o.id = g.contract_id "
+                             f"WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.date >= ? AND g.prod IN ({','.join('?' * len(keys))})", [start, *keys])
+                g["sales_orders"] = (r["n"] if r else 0) or 0
+            g["ids"] = [p["id"] for p in packs]
+        groups.sort(key=lambda g: g["batch"])
+        groups.sort(key=lambda g: g["last_sale"] or "", reverse=True)
+        groups.sort(key=lambda g: g["stock"], reverse=True)
+        return groups
 
     RECENT_ORDERS = 25
     RECENT_PURCHASES = 20

@@ -1492,6 +1492,19 @@ function mergedRows(doc, key, isModel, head, tail, cols, subNote) {
   return main + doc.lines.map((l) => `<tr class="sub bc${l.batch_idx % 6}" data-sub="${key}" hidden>${blank(head.length - 1)}<td class="small">${isModel ? '' : chipOf(l)}</td>${isModel ? `<td class="small">${chipOf(l)}</td>` : ''}${cols.map((c) => `<td class="num">${c.f(l[c.k])}</td>`).join('')}<td class="small muted">${subNote ? subNote(l) : ''}</td>${blank(tail.length - 1)}</tr>`).join('');
 }
 const batchNote = (l) => l.batchnum && l.batchnum !== l.batch ? '批号 ' + esc(l.batchnum) : '';
+// 型号详情“各货号库存”：同一货号的几种包装合成一行（库存 / 销售相加，单数按订单去重），点“包装”展开各包装记录；展开行同货号同底色，点行打开该包装记录
+function batchGroupRows(g, gi) {
+  const label = esc(g.batch.startsWith('#') ? '无编号 ' + g.batch : g.batch);
+  const stockCell = (x) => `<td class="num">${fmtInt(x.stock)}${unitTag(x)}${x.stock_low ? ' <span class="tag bad">低</span>' : ''}${x.units > 1 ? ' <span class="tag warn" title="有库存的包装记录之间计量单位不一致">单位不一</span>' : ''}</td>`;
+  const restCells = (x) => `<td class="small">${esc(x.status || '')}</td><td class="num">${fmtMoney(x.sales_amount)}</td><td class="num">${fmtInt(x.sales_qty)}</td><td class="num">${x.sales_orders || ''}</td><td class="nowrap small">${esc(x.last_sale || '—')}</td>`;
+  if (g.pack_count === 1) {
+    const b = g.packs[0];
+    return `<tr class="click" data-batch="${b.id}"><td class="lead">${label}</td><td class="small">${b.pack ? esc(b.pack) : '<span class="muted">—</span>'}</td>${stockCell(b)}${restCells(b)}</tr>`;
+  }
+  const c = gi % 6;
+  return `<tr class="has-sub"><td class="lead">${label}</td><td class="small fold" data-fold="b${gi}" title="展开 / 收起各包装记录"><span class="tri-fold">▸</span>${g.pack_count} 种包装<br>${g.packs.map((b) => `<span class="bchip bc${c}">${esc(b.pack || '（无包装）')}</span>`).join('')}</td>${stockCell(g)}${restCells(g)}</tr>`
+    + g.packs.map((b) => `<tr class="sub click bc${c}" data-sub="b${gi}" data-batch="${b.id}" hidden title="打开该包装记录"><td class="small muted">${esc(b.sn || '（无编号）')}</td><td class="small"><span class="bchip bc${c}">${esc(b.pack || '（无包装）')}</span></td>${stockCell(b)}${restCells(b)}</tr>`).join('');
+}
 const orderRows = (o, isModel) => mergedRows(o, `o${o.order_id}`, isModel,
   [`<td class="nowrap">${esc(o.date)}</td>`, `<td class="nowrap">${orderLink(o.order_id, o.order_no)}</td>`, `<td class="lead">${custLink(o.customer)}</td>`],
   [`<td class="small">${esc(o.status_text)}</td>`, `<td class="nowrap">${esc(o.who)}</td>`],
@@ -1521,14 +1534,14 @@ async function openProduct(key) {
       <div class="kv">
         <div><label>型号</label><span><b>${esc(p.model_name)}</b></span></div>
         <div><label>分类</label><span>${esc(p.class)} <span class="muted small">${esc(p.group)}</span></span></div>
-        <div><label>批号</label><span>${fmtInt(p.batches)} 个${p.batches_in_stock ? `，其中 ${fmtInt(p.batches_in_stock)} 个有库存` : (p.batches > 1 ? '，均无库存' : '，无库存')}${p.low_batches ? ` · <span class="tag bad">${p.low_batches} 个低于下限</span>` : ''}</span></div>
+        <div><label>货号</label><span>${fmtInt(d.batch_groups.length)} 个 <span class="muted small">· ${fmtInt(p.batches)} 条包装记录${p.batches_in_stock ? `，${fmtInt(p.batches_in_stock)} 条有库存` : (p.batches > 1 ? '，均无库存' : '，无库存')}</span>${p.low_batches ? ` · <span class="tag bad">${p.low_batches} 条低于下限</span>` : ''}</span></div>
         <div><label>库存合计</label><span><b>${fmtInt(p.stock)}</b>${unitTag(p)}${p.units > 1 ? ' <span class="tag warn" title="有库存的批号之间计量单位不一致">各批号单位不一致</span>' : ''}</span></div>
         <div><label>价格</label><span class="money">${p.price ? fmtMoney(p.price) : '—'}</span></div>
         <div><label>${d.window}</label><span>销售 ${fmtMoney(p.sales_amount)} · ${fmtInt(p.sales_qty)} ${esc(p.unit || '')} · ${p.sales_orders} 单 · ${p.sales_customers} 家客户</span></div>
       </div>
-      <h3>各批号库存 <span class="muted">${d.batches.length} 个批号 · 编号为“生产批号-包装规格”，包装不是计量单位</span></h3>
-      <table><thead><tr><th>编号</th><th>包装</th><th class="num">库存</th><th>状态</th><th class="num">${d.window}销售额</th><th class="num">数量</th><th class="num">单数</th><th>最近销售</th></tr></thead><tbody>
-        ${d.batches.map((b) => `<tr class="click" data-batch="${b.id}"><td class="lead">${esc(b.sn || '（无编号）')}</td><td class="small">${b.pack ? esc(b.pack) : '<span class="muted">—</span>'}</td><td class="num">${fmtInt(b.stock)}${unitTag(b)}${b.stock_low ? ' <span class="tag bad">低</span>' : ''}</td><td class="small">${esc(b.status || '')}</td><td class="num">${fmtMoney(b.sales_amount)}</td><td class="num">${fmtInt(b.sales_qty)}</td><td class="num">${b.sales_orders || ''}</td><td class="nowrap small">${esc(b.last_sale || '—')}</td></tr>`).join('')}
+      <h3>各货号库存 <span class="muted">${d.batch_groups.length} 个货号 · ${d.batches.length} 条包装记录 · 编号为“货号-包装规格”，包装不是计量单位${d.batch_groups.some((g) => g.pack_count > 1) ? ' · 多种包装的货号点“包装”可展开' : ''}</span></h3>
+      <table><thead><tr><th>货号</th><th>包装</th><th class="num">库存</th><th>状态</th><th class="num">${d.window}销售额</th><th class="num">数量</th><th class="num">单数</th><th>最近销售</th></tr></thead><tbody>
+        ${d.batch_groups.map((g, gi) => batchGroupRows(g, gi)).join('')}
       </tbody></table>` : `
       <div class="kv">
         <div><label>编号</label><span>${esc(p.sn || '（无编号）')} <span class="muted small">id ${p.id}</span></span></div>

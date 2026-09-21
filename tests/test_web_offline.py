@@ -735,6 +735,15 @@ def test_product_detail_merges_order_lines_by_order(tmp_path):
     assert [(l["batch_idx"], l["pack"], l["product_id"]) for l in lo["lines"]] == [(0, "20kg/桶", 33), (1, "10kg/桶", 32)]
     lab = [l for l in d["libout_docs"] if l["libout_id"] == 502][0]
     assert lab["customer"] is None and lab["order_no"] == "" and lab["line_count"] == 1
+    # 各货号库存：同一货号的两种包装合成一行，库存 / 销售相加，单数按订单去重（订单 95 同时买了 20kg 与 10kg 只算 1 单）
+    groups = {g["batch"]: g for g in d["batch_groups"]}
+    assert set(groups) == {"260114AB", "260227AB", "#34"} and len(d["batches"]) == 4
+    g = groups["260114AB"]
+    assert g["pack_count"] == 2 and [x["pack"] for x in g["packs"]] == ["10kg/桶", "20kg/桶"] and [x["pack_idx"] for x in g["packs"]] == [0, 1]
+    assert g["stock"] == 20.0 and g["unit"] == "公斤" and g["units"] == 1 and g["status"] == "正常"
+    assert g["sales_qty"] == 1.5 and g["sales_amount"] == 5000.0 and g["sales_orders"] == 1 and g["last_sale"] == f"{y}-07-01"
+    assert groups["#34"]["pack_count"] == 1 and groups["#34"]["packs"][0]["id"] == 34
+    assert d["batch_groups"][0]["batch"] in ("260114AB",)          # 库存最多的货号排最前
     one = d["orders"][0]
     assert one["line_count"] == 1 and one["batches"] == ["#34"] and one["lines"][0]["sn"] == ""   # 无编号产品退回 id
     multi = d["orders"][1]
