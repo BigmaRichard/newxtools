@@ -691,10 +691,7 @@ class ReportQueries:
         # 出库明细里产品用 pid 引用，少数旧单据只填了 prod（编号），两者都匹配
         lib_where = (("CAST(i.pid AS INTEGER) IN (SELECT id FROM product WHERE name = ?) OR i.prod IN (SELECT sn FROM product WHERE name = ? AND sn <> '')", [model, model])
                      if model else ("CAST(i.pid AS INTEGER) = ? OR i.prod IN (?, ?)", [prod["id"], prod.get("sn") or "\0", str(prod["id"])]))
-        libouts = [{"libout_id": x["id"], "date": x["date"], "title": x["title"], "libname": x["libname"], "customer": self.lk.customer(x["cu_sn"], numeric_is_id=True), "order_no": x["co_sn"],
-                    "qty": round(_num(x["num"]), 3), "batchnum": x["batchnum"], "who": self.lk.user_name(x["who"])} for x in self.rows(
-            "SELECT l.id, l.date, l.title, l.libname, l.cu_sn, l.co_sn, l.who, i.num, i.batchnum FROM libout_items i JOIN libout l ON l.id = i.libout_id "
-            f"WHERE l._deleted_at IS NULL AND ({lib_where[0]}) ORDER BY l.date DESC, l.id DESC LIMIT 20", lib_where[1])]
+        libouts, libout_docs = self._recent_libout_lines(lib_where[0], lib_where[1])
         batches = []
         if model:  # 型号下的各批号：编号里通常是“生产批号-包装规格”
             batches = [{"id": x["id"], "sn": x["sn"] or "", "stock": round(_num(x["stock"]), 3), "ldown": round(_num(x["ldown"]), 3),
@@ -707,7 +704,7 @@ class ReportQueries:
         extras = [] if model else self.raw_extras("product", prod["id"], set(r.keys()))
         return {"product": product, "view": "model" if model else "batch", "window": window, "yearly": yearly, "monthly": monthly,
                 "top_customers": top_customers, "lines": lines, "orders": orders, "purchases": purchases, "purchase_docs": purchase_docs,
-                "libouts": libouts, "batches": batches, "extras": extras}
+                "libouts": libouts, "libout_docs": libout_docs, "batches": batches, "extras": extras}
 
     RECENT_ORDERS = 25
     RECENT_PURCHASES = 20
@@ -722,8 +719,8 @@ class ReportQueries:
         return (p or {}).get("id"), sn, batch, pack
 
     @staticmethod
-    def _merge_doc_lines(lines: List[Dict[str, Any]], doc_key: str, head_keys: Tuple[str, ...], amount_key: str,
-                         price_key: str) -> List[Dict[str, Any]]:
+    def _merge_doc_lines(lines: List[Dict[str, Any]], doc_key: str, head_keys: Tuple[str, ...], amount_key: Optional[str] = None,
+                         price_key: Optional[str] = None) -> List[Dict[str, Any]]:
         """按单据合并明细行：一单一条，数量与金额合计，单价一致时给单价否则给区间；列出该单用到的批次并给每行标批次序号，
         同一批次的行（不同包装）排在一起。lines 里的每个 dict 会被就地补上 batch_idx。"""
         docs: List[Dict[str, Any]] = []
@@ -732,22 +729,27 @@ class ReportQueries:
             d = by_id.get(line[doc_key])
             if d is None:
                 d = {k: line[k] for k in (doc_key, *head_keys)}
-                d.update({"qty": 0.0, amount_key: 0.0, "lines": [], "batches": []})
+                d.update({"qty": 0.0, "lines": [], "batches": []})
+                if amount_key:
+                    d[amount_key] = 0.0
                 by_id[line[doc_key]] = d
                 docs.append(d)
             d["qty"] += line["qty"]
-            d[amount_key] += line[amount_key]
+            if amount_key:
+                d[amount_key] += line[amount_key]
             if line["batch"] not in d["batches"]:
                 d["batches"].append(line["batch"])
             line["batch_idx"] = d["batches"].index(line["batch"])
             d["lines"].append(line)
         for d in docs:
             d["lines"].sort(key=lambda l: l["batch_idx"])
-            prices = sorted({l[price_key] for l in d["lines"]})
-            d[price_key] = prices[0] if len(prices) == 1 else None
-            d["price_min"], d["price_max"] = prices[0], prices[-1]
+            if price_key:
+                prices = sorted({l[price_key] for l in d["lines"]})
+                d[price_key] = prices[0] if len(prices) == 1 else None
+                d["price_min"], d["price_max"] = prices[0], prices[-1]
             d["qty"] = round(d["qty"], 3)
-            d[amount_key] = round(d[amount_key], 2)
+            if amount_key:
+                d[amount_key] = round(d[amount_key], 2)
             d["line_count"] = len(d["lines"])
             d["batch_count"] = len(d["batches"])
         return docs
@@ -757,7 +759,7 @@ class ReportQueries:
         sql = ("SELECT o.id, o.no_, o.date, o.cu_sn, o.who, o.status, g.prod, g.amount, g.un_price, g.sum gsum, g.batchnum, g.memo "
                "FROM contract_goods g JOIN contract o ON o.id = g.contract_id "
                f"WHERE o._deleted_at IS NULL AND {match} AND o.id IN ("
-               f"  SELECT o.id FROM contract o WHERE o._deleted_at IS NULL AND EXISTS (SELECT 1 FROM contract_goods g WHERE g.contract_id = o.id AND {match}) "
+               f"  SELECT o.id FROM contract o WHERE o._deleted_at IS NULL AND o.id IN (SELECT g.contract_id FROM contract_goods g WHERE {match}) "
                f"  ORDER BY o.date DESC, o.id DESC LIMIT {self.RECENT_ORDERS}) "
                "ORDER BY o.date DESC, o.id DESC, g._seq, g.id")
         lines = []
@@ -770,12 +772,34 @@ class ReportQueries:
         orders = self._merge_doc_lines(lines, "order_id", ("order_no", "date", "customer", "who", "status_text"), "sum", "unit_price")
         return lines, orders
 
+    RECENT_LIBOUTS = 20
+
+    def _recent_libout_lines(self, match: str, margs: List[Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """出库记录：最近 20 张出库单里本产品（型号）的全部明细行，另按出库单合并成 libout_docs（一张出库单发了多个批次时可展开）。
+        出库明细的产品优先按 pid 关联，旧单据只填了 prod（编号）时按编号。"""
+        sql = ("SELECT l.id, l.date, l.title, l.libname, l.cu_sn, l.co_sn, l.who, i.pid, i.prod, i.num, i.batchnum "
+               "FROM libout_items i JOIN libout l ON l.id = i.libout_id "
+               f"WHERE l._deleted_at IS NULL AND ({match}) AND l.id IN ("
+               f"  SELECT l.id FROM libout l WHERE l._deleted_at IS NULL AND l.id IN (SELECT i.libout_id FROM libout_items i WHERE {match}) "
+               f"  ORDER BY l.date DESC, l.id DESC LIMIT {self.RECENT_LIBOUTS}) "
+               "ORDER BY l.date DESC, l.id DESC, i._seq, i.id")
+        lines = []
+        for x in self.rows(sql, [*margs, *margs]):
+            ref = f"[id:{x['pid']}]" if str(x["pid"] or "").strip() not in ("", "0") else x["prod"]
+            pid, sn, batch, pack = self._batch_of_line(ref, x["batchnum"])
+            customer = self.lk.customer(x["cu_sn"], numeric_is_id=True) if str(x["cu_sn"] or "").strip() not in ("", "0") else None   # 领用等无客户的出库单
+            lines.append({"libout_id": x["id"], "date": x["date"], "title": x["title"], "libname": x["libname"], "customer": customer,
+                          "order_no": x["co_sn"] if str(x["co_sn"] or "").strip() not in ("", "0") else "", "qty": round(_num(x["num"]), 3), "batchnum": x["batchnum"],
+                          "who": self.lk.user_name(x["who"]), "prod": x["prod"], "product_id": pid, "sn": sn, "batch": batch, "pack": pack})
+        docs = self._merge_doc_lines(lines, "libout_id", ("date", "title", "libname", "customer", "order_no", "who"))
+        return lines, docs
+
     def _recent_purchase_lines(self, match: str, margs: List[Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """采购记录：最近 20 张采购单里本产品（型号）的全部明细行，另按采购单合并成 purchase_docs（同一单多批次 / 多包装时可展开）。"""
         sql = ("SELECT u.id, u.no_, u.date, u.title, u.cu_id, u.money_type, u.who, i.prod, i.num, i.price, i.money pmoney, i.batchnum "
                "FROM purchase_items i JOIN purchase u ON u.id = i.purchase_id "
                f"WHERE u._deleted_at IS NULL AND {match} AND u.id IN ("
-               f"  SELECT u.id FROM purchase u WHERE u._deleted_at IS NULL AND EXISTS (SELECT 1 FROM purchase_items i WHERE i.purchase_id = u.id AND {match}) "
+               f"  SELECT u.id FROM purchase u WHERE u._deleted_at IS NULL AND u.id IN (SELECT i.purchase_id FROM purchase_items i WHERE {match}) "
                f"  ORDER BY u.date DESC, u.id DESC LIMIT {self.RECENT_PURCHASES}) "
                "ORDER BY u.date DESC, u.id DESC, i._seq, i.id")
         lines = []

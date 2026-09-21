@@ -1475,26 +1475,34 @@ async function pageContacts(view, params) {
 // ------------------------------------------------------------------ 抽屉：产品 / 采购单（0.5）
 // 最近订单明细：一单一行（合计数量与金额），一单用了多个批次 / 多种包装时可展开看每一行；同一批次同一底色（0.6.3）
 const batchChip = (b, idx, pid) => pid ? `<a class="bchip bc${idx % 6}" data-prod="${pid}" title="生产批号，点开看该批号">${esc(b.startsWith('#') ? '无编号 ' + b : b)}</a>` : `<span class="bchip bc${idx % 6}" title="生产批号">${esc(b.startsWith('#') ? '无编号 ' + b : b)}</span>`;
-// 一单一行 + 展开后的明细行，订单与采购共用：head / tail 是主行前后几列的 <td>（展开行对应位置留空）
-function mergedRows(doc, key, isModel, head, tail, priceKey, amountKey, amountTag, subNote) {
+// 一单一行 + 展开后的明细行，订单 / 采购 / 出库共用：head / tail 是主行前后几列的 <td>（展开行对应位置留空），
+// cols 是数字列 [{k: 字段, f: 格式化, sum: 合计列, price: 单价列（各行不同时显示区间）, tag: 附在数字后的小字}]
+function mergedRows(doc, key, isModel, head, tail, cols, subNote) {
   const multi = doc.line_count > 1, first = doc.lines[0];
   const chipOf = (l) => `${batchChip(l.batch, l.batch_idx, l.product_id)}${l.pack ? ` <span class="muted">${esc(l.pack)}</span>` : ''}`;
   const batchCell = !isModel ? '' : multi
     ? `<td class="small fold" data-fold="${key}" title="展开 / 收起各批次明细"><span class="tri-fold">▸</span>${doc.batch_count} 个批次 · ${doc.line_count} 行<br>${doc.batches.map((b, i) => batchChip(b, i)).join('')}</td>`
     : `<td class="small">${esc(first.batch.startsWith('#') ? '无编号 ' + first.batch : first.batch)}${first.pack ? ` <span class="muted">${esc(first.pack)}</span>` : ''}</td>`;
-  const price = doc[priceKey] != null ? fmtMoney(doc[priceKey]) : `<span class="small" title="各行单价不同">${fmtMoney(doc.price_min)}–${fmtMoney(doc.price_max)}</span>`;
-  const main = `<tr${multi ? ' class="has-sub"' : ''}>${head.join('')}${batchCell}<td class="num">${fmtInt(doc.qty)}${multi ? ' <span class="muted small">合计</span>' : ''}</td><td class="num">${price}</td><td class="num">${fmtMoney(doc[amountKey])}${amountTag || ''}</td>${tail.join('')}</tr>`;
+  const cell = (c) => c.price
+    ? `<td class="num">${doc[c.k] != null ? c.f(doc[c.k]) : `<span class="small" title="各行单价不同">${c.f(doc.price_min)}–${c.f(doc.price_max)}</span>`}</td>`
+    : `<td class="num">${c.f(doc[c.k])}${c.sum && multi ? ' <span class="muted small">合计</span>' : ''}${c.tag || ''}</td>`;
+  const main = `<tr${multi ? ' class="has-sub"' : ''}>${head.join('')}${batchCell}${cols.map(cell).join('')}${tail.join('')}</tr>`;
   if (!multi) return main;
   const blank = (n) => '<td></td>'.repeat(n);
-  return main + doc.lines.map((l) => `<tr class="sub bc${l.batch_idx % 6}" data-sub="${key}" hidden>${blank(head.length - 1)}<td class="small">${isModel ? '' : chipOf(l)}</td>${isModel ? `<td class="small">${chipOf(l)}</td>` : ''}<td class="num">${fmtInt(l.qty)}</td><td class="num">${fmtMoney(l[priceKey])}</td><td class="num">${fmtMoney(l[amountKey])}</td><td class="small muted">${subNote ? subNote(l) : ''}</td>${blank(tail.length - 1)}</tr>`).join('');
+  return main + doc.lines.map((l) => `<tr class="sub bc${l.batch_idx % 6}" data-sub="${key}" hidden>${blank(head.length - 1)}<td class="small">${isModel ? '' : chipOf(l)}</td>${isModel ? `<td class="small">${chipOf(l)}</td>` : ''}${cols.map((c) => `<td class="num">${c.f(l[c.k])}</td>`).join('')}<td class="small muted">${subNote ? subNote(l) : ''}</td>${blank(tail.length - 1)}</tr>`).join('');
 }
+const batchNote = (l) => l.batchnum && l.batchnum !== l.batch ? '批号 ' + esc(l.batchnum) : '';
 const orderRows = (o, isModel) => mergedRows(o, `o${o.order_id}`, isModel,
   [`<td class="nowrap">${esc(o.date)}</td>`, `<td class="nowrap">${orderLink(o.order_id, o.order_no)}</td>`, `<td class="lead">${custLink(o.customer)}</td>`],
-  [`<td class="small">${esc(o.status_text)}</td>`, `<td class="nowrap">${esc(o.who)}</td>`], 'unit_price', 'sum', '',
-  (l) => l.batchnum && l.batchnum !== l.batch ? '批号 ' + esc(l.batchnum) : '');
+  [`<td class="small">${esc(o.status_text)}</td>`, `<td class="nowrap">${esc(o.who)}</td>`],
+  [{ k: 'qty', f: fmtInt, sum: true }, { k: 'unit_price', f: fmtMoney, price: true }, { k: 'sum', f: fmtMoney }], batchNote);
 const purchaseRows = (u, isModel) => mergedRows(u, `p${u.purchase_id}`, isModel,
   [`<td class="nowrap">${esc(u.date)}</td>`, `<td class="small"><a data-purchase="${u.purchase_id}">${esc(u.no)}</a></td>`, `<td>${u.supplier ? custLink(u.supplier) : '—'}</td>`],
-  [`<td class="nowrap">${esc(u.who)}</td>`], 'price', 'money', ` <span class="muted small">${esc(u.money_type)}</span>`);
+  [`<td class="nowrap">${esc(u.who)}</td>`],
+  [{ k: 'qty', f: fmtInt, sum: true }, { k: 'price', f: fmtMoney, price: true }, { k: 'money', f: fmtMoney, tag: ` <span class="muted small">${esc(u.money_type)}</span>` }], batchNote);
+const liboutRows = (l, isModel) => mergedRows(l, `l${l.libout_id}`, isModel,
+  [`<td class="nowrap">${esc(l.date)}</td>`, `<td class="small">${esc(l.title || '')}</td>`, `<td class="small">${esc(l.libname || '')}</td>`, `<td>${custLink(l.customer)}</td>`, `<td class="small">${esc(l.order_no || '')}</td>`],
+  [`<td>${esc(l.who)}</td>`], [{ k: 'qty', f: fmtInt, sum: true }], batchNote);
 function bindFolds(root) {
   root.querySelectorAll('[data-fold]').forEach((td) => td.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1544,8 +1552,8 @@ async function openProduct(key) {
       ${d.orders.length ? `<table><thead><tr><th>日期</th><th>单号</th><th>客户</th>${isModel ? '<th>批次</th>' : ''}<th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th>状态</th><th>业务员</th></tr></thead><tbody>${d.orders.map((o) => orderRows(o, isModel)).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       <h3>采购记录 <span class="muted">${d.purchase_docs.length} 单 · ${d.purchases.length} 行${d.purchase_docs.some((u) => u.line_count > 1) ? ' · 多批次的单点“批次”可展开' : ''}</span></h3>
       ${d.purchase_docs.length ? `<table><thead><tr><th>日期</th><th>采购单</th><th>供应商</th>${isModel ? '<th>批次</th>' : ''}<th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th>经办</th></tr></thead><tbody>${d.purchase_docs.map((u) => purchaseRows(u, isModel)).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
-      <h3>出库记录 <span class="muted">${d.libouts.length} 行</span></h3>
-      ${d.libouts.length ? `<table><thead><tr><th>日期</th><th>标题</th><th>仓库</th><th>客户</th><th>订单号</th><th class="num">数量</th><th>批号</th><th>经办</th></tr></thead><tbody>${d.libouts.map((l) => `<tr><td class="nowrap">${esc(l.date)}</td><td class="small">${esc(l.title || '')}</td><td class="small">${esc(l.libname || '')}</td><td>${custLink(l.customer)}</td><td class="small">${esc(l.order_no || '')}</td><td class="num">${fmtInt(l.qty)}</td><td class="small">${esc(l.batchnum || '')}</td><td>${esc(l.who)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
+      <h3>出库记录 <span class="muted">${d.libout_docs.length} 单 · ${d.libouts.length} 行${d.libout_docs.some((l) => l.line_count > 1) ? ' · 多批次的单点“批次”可展开' : ''}</span></h3>
+      ${d.libout_docs.length ? `<table><thead><tr><th>日期</th><th>标题</th><th>仓库</th><th>客户</th><th>订单号</th>${isModel ? '<th>批次</th>' : ''}<th class="num">数量</th><th>经办</th></tr></thead><tbody>${d.libout_docs.map((l) => liboutRows(l, isModel)).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       ${d.extras.length ? `<h3>其他字段</h3><div class="kv stack">${d.extras.map((x) => `<div><label title="${esc(x.key)}">${esc(x.name)}</label><span>${esc(x.value)}</span></div>`).join('')}</div>` : ''}`;
     const title = esc(isModel ? p.model_name : p.name);
     stack[stack.length - 1].title = title; stack[stack.length - 1].html = html;

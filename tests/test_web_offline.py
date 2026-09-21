@@ -704,8 +704,17 @@ def test_product_detail_merges_order_lines_by_order(tmp_path):
     store.upsert_normalized(SPEC_BY_DT["product"], batches)
     store.upsert_raw("contract", orders)
     store.upsert_normalized(SPEC_BY_DT["contract"], orders)
+    libouts = [  # 一张出库单发了两个批次；另一张是实验室领用（无客户、无订单号）
+        {"id": "501", "title": "填料：SP-100-8-C4-NP 3kg", "lib": "7", "libname": "海南仓库", "cu_sn": "1", "co_sn": f"mw{y}0701095", "date": f"{y}-07-02", "who": "M9", "memo": "",
+         "libitem": [{"id": "5011", "prod": "260227AB-20kg/桶", "pid": "33", "pro_name": "SP-100-8-C4-NP", "batchnum": "260227AB", "num": "2.000"},
+                     {"id": "5012", "prod": "260114AB-10kg/桶", "pid": "32", "pro_name": "SP-100-8-C4-NP", "batchnum": "260114AB", "num": "1.000"}]},
+        {"id": "502", "title": "实验室领用", "lib": "7", "libname": "海南仓库", "cu_sn": "0", "co_sn": "0", "date": f"{y}-07-03", "who": "M9", "memo": "",
+         "libitem": [{"id": "5021", "prod": "260114AB-20kg/桶", "pid": "31", "pro_name": "SP-100-8-C4-NP", "batchnum": "260114AB", "num": "0.100"}]},
+    ]
     store.upsert_raw("purchase", purchases)
     store.upsert_normalized(SPEC_BY_DT["purchase"], purchases)
+    store.upsert_raw("libout", libouts)
+    store.upsert_normalized(SPEC_BY_DT["libout"], libouts)
     store.close()
     mirror = Mirror(path)
     conn = mirror.connect()
@@ -720,6 +729,12 @@ def test_product_detail_merges_order_lines_by_order(tmp_path):
     assert pu["line_count"] == 3 and pu["batches"] == ["260227AB", "260114AB"] and pu["qty"] == 130.0 and pu["money"] == 2795000.0
     assert pu["price"] == 21500.0 and pu["money_type"] == "RMB" and pu["supplier"]["id"] == 3
     assert [(l["batch_idx"], l["pack"]) for l in pu["lines"]] == [(0, "20kg/桶"), (1, "20kg/桶"), (1, "10kg/桶")]
+    # 出库记录同样按出库单合并：一张出库单发了两个批次；无客户（领用）的出库单客户为空而不是“已删除 0”
+    lo = [l for l in d["libout_docs"] if l["libout_id"] == 501][0]
+    assert lo["line_count"] == 2 and lo["batches"] == ["260227AB", "260114AB"] and lo["qty"] == 3.0 and lo["order_no"] == f"mw{y}0701095"
+    assert [(l["batch_idx"], l["pack"], l["product_id"]) for l in lo["lines"]] == [(0, "20kg/桶", 33), (1, "10kg/桶", 32)]
+    lab = [l for l in d["libout_docs"] if l["libout_id"] == 502][0]
+    assert lab["customer"] is None and lab["order_no"] == "" and lab["line_count"] == 1
     one = d["orders"][0]
     assert one["line_count"] == 1 and one["batches"] == ["#34"] and one["lines"][0]["sn"] == ""   # 无编号产品退回 id
     multi = d["orders"][1]
