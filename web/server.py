@@ -398,6 +398,25 @@ class Lookups:
             "last_log": max(visits[-1] if visits else "", others[-1] if others else "") or None,
         }
 
+    def visit_key(self, cid: Any) -> float:
+        """客户页按“拜访频度”排序用的数值键（注册为 SQL 函数）：近一年上门次数 × 10000 + 上次上门的新近度（9999 − 距今天数）；
+        超一年没上门的只剩新近度（0 ～ 9633）；有日志但从未上门 −1；没有日志 −2。降序 = 拜访最勤的在前，升序 = 最久没去的在前。按天缓存。"""
+        today = dt.date.today()
+        cache = getattr(self, "_visit_keys", None)
+        if cache is None or cache[0] != today:
+            keys: Dict[int, float] = {}
+            for c in self.visit_log:
+                v = self.visit_stats(c, today)
+                if not v:
+                    keys[c] = -2.0
+                elif not v["visits"]:
+                    keys[c] = -1.0
+                else:
+                    keys[c] = v["visits_12m"] * 10000.0 + max(0, 9999 - (v["days_since"] or 0))
+            cache = (today, keys)
+            self._visit_keys = cache
+        return cache[1].get(_int(cid, 0), -2.0)
+
     def customer(self, key: Any, numeric_is_id: bool = False) -> Optional[Dict[str, Any]]:
         cid = self.customer_id(key, numeric_is_id)
         if cid is None:
@@ -807,12 +826,24 @@ class Query(ReportQueries):
         where = " WHERE " + " AND ".join(clauses)
         page, size, offset = self.page()
         total = (self.one(f"SELECT COUNT(*) n FROM customer c{where}", args) or {}).get("n") or 0
-        sort = {
-            "amount": "order_amount DESC, c.id DESC", "name": "c.cu_name COLLATE NOCASE ASC", "created": "c.creatdate DESC, c.id DESC",
-            "orders": "orders DESC, c.id DESC",
-        }.get(self.get("sort"), "last_order IS NULL, last_order DESC, c.id DESC")
-        rows = self.rows(f"{self.CUSTOMER_LIST_SQL}{where} ORDER BY {sort} LIMIT ? OFFSET ?", [*args, size, offset])
-        return {"total": total, "page": page, "size": size, "rows": [self.customer_row(c) for c in rows]}
+        key, direction = self.customer_sort()
+        if key == "visits":                                     # 拜访频度在 Python 里算，注册成 SQL 函数给 ORDER BY 用（连接是每个请求新开的）
+            self.conn.create_function("visit_key", 1, self.lk.visit_key, deterministic=True)
+        order = f"{self.CUSTOMER_SORTS[key]} {direction.upper()} NULLS LAST, c.id DESC"
+        rows = self.rows(f"{self.CUSTOMER_LIST_SQL}{where} ORDER BY {order} LIMIT ? OFFSET ?", [*args, size, offset])
+        return {"total": total, "page": page, "size": size, "sort": key, "dir": direction, "rows": [self.customer_row(c) for c in rows]}
+
+    # 客户列表的排序：表头箭头 / 下拉传 sort + dir；缺省按最近订单从新到旧，名称从 A 到 Z，其余从大到小
+    CUSTOMER_SORTS = {"last": "last_order", "amount": "order_amount", "orders": "orders", "receipts": "receipts", "contacts": "contacts",
+                      "visits": "visit_key(c.id)", "created": "c.creatdate", "name": "c.cu_name COLLATE NOCASE"}
+
+    def customer_sort(self) -> Tuple[str, str]:
+        key, direction = self.get("sort") or "last", (self.get("dir") or "").lower()
+        if key not in self.CUSTOMER_SORTS:
+            key = "last"
+        if direction not in ("asc", "desc"):
+            direction = "asc" if key == "name" else "desc"
+        return key, direction
 
     def customer_detail(self, cid: int) -> Optional[Dict[str, Any]]:
         c = self.one(self.CUSTOMER_LIST_SQL + " WHERE c.id = ?", [cid])

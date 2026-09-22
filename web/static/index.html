@@ -773,7 +773,9 @@ async function pageOrders(view, params) {
 
 // ------------------------------------------------------------------ 页面：客户
 async function pageCustomers(view, params) {
-  const f = { q: '', owner: '', life: '', type: '', cu_status: '', sort: '', page: 1, ...params };
+  const f = { q: '', owner: '', life: '', type: '', cu_status: '', sort: '', dir: '', page: 1, ...params };
+  const sortUi = (key, dir) => CUST_SORT_OPTS.map(([k, label, d, a]) =>
+    `<option value="${k}:desc" ${key === k && dir !== 'asc' ? 'selected' : ''}>${label} ${d}</option><option value="${k}:asc" ${key === k && dir === 'asc' ? 'selected' : ''}>${label} ${a}</option>`).join('');
   view.innerHTML = `<h1>客户查询</h1>
     <div class="filters" id="filters">
       <input type="text" name="q" placeholder="客户名称 / 简称 / 编号" value="${esc(f.q)}">
@@ -781,7 +783,8 @@ async function pageCustomers(view, params) {
       <select name="life">${dictOptions('customer.life', f.life, '生命周期')}</select>
       <select name="type">${dictOptions('customer.type', f.type, '客户类型')}</select>
       <select name="cu_status">${dictOptions('customer.cu_status', f.cu_status, '阶段')}</select>
-      <select name="sort"><option value="">按最近订单</option><option value="amount" ${f.sort === 'amount' ? 'selected' : ''}>按订单额</option><option value="orders" ${f.sort === 'orders' ? 'selected' : ''}>按订单数</option><option value="created" ${f.sort === 'created' ? 'selected' : ''}>按创建时间</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>按名称</option></select>
+      <select id="custSortUi" title="排序（表头箭头也可以点）">${sortUi(f.sort || 'last', f.dir || (f.sort === 'name' ? 'asc' : 'desc'))}</select>
+      <input type="hidden" name="sort" value="${esc(f.sort)}"><input type="hidden" name="dir" value="${esc(f.dir)}">
       <button class="btn primary" id="go">查询</button><button class="btn" id="reset">清空</button>${exportButton('customers')}
     </div>
     <div class="card"><div id="list"><div class="empty">加载中…</div></div></div>`;
@@ -792,16 +795,29 @@ async function pageCustomers(view, params) {
     list.classList.add('loading');
     try {
       const res = await api('/api/customers', { ...q, size: 50 });
+      const arrow = (key) => res.sort === key ? `<span class="sort-arrow">${res.dir === 'asc' ? '▲' : '▼'}</span>` : '<span class="sort-arrow dim">↕</span>';
+      const th = (key, label, cls) => `<th class="${cls ? cls + ' ' : ''}sortable" data-sort="${key}">${label}${arrow(key)}</th>`;
+      $('#custSortUi').innerHTML = sortUi(res.sort, res.dir);
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 家客户</p>
-        <table><thead><tr><th>客户</th><th>所有者</th><th>周期</th><th>阶段</th><th>城市</th><th>拜访频度</th><th class="num">订单数</th><th class="num">订单额</th><th>最近订单</th><th class="num">回款额</th><th class="num">联系人</th></tr></thead><tbody>
+        <table><thead><tr>${th('name', '客户', '')}<th>所有者</th><th>周期</th><th>阶段</th><th>城市</th>${th('visits', '拜访频度', '')}${th('orders', '订单数', 'num')}${th('amount', '订单额', 'num')}${th('last', '最近订单', '')}${th('receipts', '回款额', 'num')}${th('contacts', '联系人', 'num')}</tr></thead><tbody>
         ${res.rows.map((c) => `<tr class="click" data-cust="${c.id}"><td class="lead cust-col">${esc(c.name)}${severeTag(c)}${c.short && c.short !== c.name ? `<div class="muted small">${esc(c.short)}</div>` : ''}</td><td class="nowrap">${esc(c.owner)}</td><td class="nowrap small">${esc(c.life_text)}</td><td class="nowrap small">${esc(c.stage_text)}</td><td class="nowrap">${esc(c.city || '')}</td><td>${visitCell(c)}</td>
           <td class="num">${fmtInt(c.orders)}</td><td class="num">${fmtMoney(c.order_amount)}</td><td class="nowrap">${esc(c.last_order || '—')}</td><td class="num">${fmtMoney(c.receipts)}</td><td class="num">${c.contacts}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">没有符合条件的客户</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       list.querySelectorAll('tr[data-cust]').forEach((tr) => tr.addEventListener('click', () => openCustomer(Number(tr.dataset.cust))));
+      list.querySelectorAll('th.sortable').forEach((el) => el.addEventListener('click', () => { setSort(el.dataset.sort); load(1); }));
     } catch (e) { list.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
     list.classList.remove('loading');
   };
+  const setSort = (key) => {   // 点表头：同一列切升降序；换列时名称从 A 到 Z，其余从大到小 / 从新到旧
+    const cur = $('[name=sort]').value || 'last', dir = $('[name=dir]').value || (cur === 'name' ? 'asc' : 'desc');
+    $('[name=sort]').value = key;
+    $('[name=dir]').value = cur === key ? (dir === 'asc' ? 'desc' : 'asc') : (key === 'name' ? 'asc' : 'desc');
+  };
+  $('#custSortUi').addEventListener('change', (e) => {
+    const [key, dir] = e.target.value.split(':');
+    $('[name=sort]').value = key; $('[name=dir]').value = dir; load(1);
+  });
   wireFilters(view, load);
   bindExport(view, () => readFilters($('#filters')));
   load(Number(f.page) || 1);
@@ -1174,6 +1190,8 @@ const sevGrid = (aging) => {
 };
 
 // 应收计划的排序项（窄屏下拉用；桌面点表头）
+const CUST_SORT_OPTS = [['last', '最近订单', '新→旧', '旧→新'], ['amount', '订单额', '高→低', '低→高'], ['orders', '订单数', '多→少', '少→多'], ['visits', '拜访频度', '多→少', '少→多'],
+  ['receipts', '回款额', '高→低', '低→高'], ['contacts', '联系人', '多→少', '少→多'], ['created', '创建时间', '新→旧', '旧→新'], ['name', '名称', 'Z→A', 'A→Z']];
 const PLAN_SORT_OPTS = [['date', '计划日期', '晚→早', '早→晚'], ['overdue', '逾期天数', '多→少', '少→多'], ['amount', '金额', '高→低', '低→高'],
   ['serial', '期次', '大→小', '小→大'], ['who', '业务员', 'Z→A', 'A→Z'], ['customer', '客户编号', 'Z→A', 'A→Z']];
 

@@ -813,3 +813,20 @@ def test_visit_frequency_per_customer(q):
     assert q().customer_detail(1)["customer"]["visits"]["visits"] == 2
     dl = build_export(q(), "customers")
     assert dl.data[:2] == b"PK" and "近一年拜访".encode("utf-8") in __import__("zipfile").ZipFile(__import__("io").BytesIO(dl.data)).read("xl/worksheets/sheet1.xml")
+
+
+def test_customers_sort_keys_and_direction(q):
+    """客户页表头排序：sort + dir 进接口；拜访频度用 visit_key（近一年次数 → 新近度 → 从未上门 → 无日志）；没有订单的客户在“最近订单”两个方向都排最后；无效值回落到缺省。"""
+    ids = lambda **p: [r["id"] for r in q(**p).customers()["rows"]]  # noqa: E731
+    assert ids(sort="visits") == [1, 2, 3] and ids(sort="visits", dir="asc") == [3, 2, 1]     # 1 近一年上门 1 次；2 只有电话；3 无日志
+    lk = q().lk
+    assert lk.visit_key(1) > 10000 > lk.visit_key(2) == -1.0 > lk.visit_key(3) == -2.0 and lk.visit_key(999) == -2.0
+    assert ids(sort="orders")[0] == 1 and ids(sort="orders", dir="asc")[0] == 3               # 1 有 2 单，3 没有订单
+    assert ids(sort="amount")[0] == 1 and ids(sort="contacts")[0] == 1 and ids(sort="receipts")[0] == 1
+    assert ids(sort="last")[-1] == 3 and ids(sort="last", dir="asc")[-1] == 3                  # 没有最近订单的排最后（NULLS LAST）
+    assert ids(sort="last", dir="asc")[0] == 1                                                  # 1 有去年 6 月的旧单（客户 2 的执行中订单是今天）
+    assert ids(sort="name") == list(reversed(ids(sort="name", dir="desc")))
+    res = q(sort="bogus", dir="sideways").customers()
+    assert res["sort"] == "last" and res["dir"] == "desc" and res["rows"][0]["id"] == 2      # 缺省：最近订单从新到旧
+    assert q(sort="name").customers()["dir"] == "asc" and q(sort="amount").customers()["dir"] == "desc"
+    assert build_export(q(sort="visits", dir="asc"), "customers").data[:2] == b"PK"                # 导出跟随排序参数
