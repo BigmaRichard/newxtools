@@ -52,8 +52,15 @@ CUSTOMER_COLS: List[Col] = [
     ("周期", lambda r: r.get("life_text")), ("类型", lambda r: r.get("type_text")), ("阶段", lambda r: r.get("stage_text")), ("行业", lambda r: r.get("industry_text")),
     ("城市", lambda r: r.get("city")), ("电话", lambda r: r.get("tel")), ("地址", lambda r: r.get("address")), ("创建", lambda r: r.get("created")), ("修改", lambda r: r.get("modified")),
     ("订单数", lambda r: r.get("orders")), ("订单额", lambda r: _num(r.get("order_amount"))), ("最近订单", lambda r: r.get("last_order")), ("回款额", lambda r: _num(r.get("receipts"))), ("联系人数", lambda r: r.get("contacts")),
-    ("严重逾期", lambda r: _severe(r)),
+    ("严重逾期", lambda r: _severe(r)), ("近一年拜访", lambda r: _visit(r, "visits_12m")), ("上次拜访", lambda r: _visit(r, "last_visit")),
+    ("累计拜访", lambda r: _visit(r, "visits")), ("近一年电话微信", lambda r: _visit(r, "contacts_12m")),
 ]
+
+
+def _visit(r: Dict[str, Any], key: str) -> Any:
+    """客户对象上的拜访频度（customer.visits）里的一项；没有日志为空。"""
+    v = r.get("visits")
+    return v.get(key) if isinstance(v, dict) else None
 
 
 def _severe(r: Dict[str, Any]) -> str:

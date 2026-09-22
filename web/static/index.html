@@ -57,6 +57,10 @@ h3 { font-size: 13px; margin: 18px 0 8px; color: var(--text-2); font-weight: 600
 .card { min-width: 0; overflow-x: auto; }   /* 列数多的表格在自己卡片内横向滚动，不会溢出去盖住旁边 */
 .prod-name { max-width: 150px; min-width: 120px; white-space: normal; overflow-wrap: break-word; }  /* 约 SP-100-8-C4-NP 的 1.3 倍，再长折行 */
 td.cust-col { width: calc(15em + 16px); }  /* 客户页名称列宽 = 15 个汉字 + 内边距：一行最多 15 个汉字，超出折行（半角字符较窄，按宽度计）；表格多出的宽度分给其他列，窗口窄时仍可收窄，手机卡片不受影响 */
+.visit-box { max-width: 185px; }            /* 客户页拜访频度：三行短句（频度 / 上次 / 累计 · 电话微信），片段内不折行 */
+.visit-box .nw { white-space: nowrap; }
+.visit-n { font-weight: 600; }
+.visit-late { color: var(--critical); font-weight: 600; }
 .group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 18px; }
 /* 应收页顶部：左边窄账龄条，右边业务员小卡并排 */
 .row-aging { grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); align-items: start; }
@@ -348,6 +352,7 @@ tr.total td { font-weight: 600; background: var(--surface-2); }
   .filters:not(.open) > *:nth-child(n+3):not(#go) { display: none; }
   .filters:not(.open) > #go { order: 1; }
   table[data-cards] .ellipsis { max-width: none !important; white-space: normal; overflow: visible; }
+  table[data-cards] .visit-box { max-width: none; }
   table[data-cards] tbody td > div.muted.small { margin-top: 0; }
   /* 无表头的两三列小表（Top 榜、按人员统计等）保持表格，只收紧留白并允许长词折行 */
   table:not([data-cards]) { table-layout: fixed; }
@@ -484,6 +489,24 @@ const dateFlag = (f, d) => f === 'future'
 // 严重逾期标记：后端在客户对象上给 severe = {days, amount, count, since}（有逾期超过 90 天的未回款计划）
 const severeTag = (c) => c && c.severe ? `<span class="tag severe" title="最久逾期 ${c.severe.days} 天 · 逾期超 90 天的有 ${c.severe.count} 期共 ${fmtMoney(c.severe.amount)} · 最早计划日期 ${esc(c.severe.since)}">严重逾期</span>` : '';
 const custLink = (c) => c ? (c.id ? `<a data-cust="${c.id}">${esc(c.name)}</a>${severeTag(c)}` : esc(c.name) + severeTag(c)) : '<span class="muted">—</span>';
+// 拜访频度：后端 customer.visits = {visits 累计上门, visits_12m 近一年上门, last_visit, days_since, contacts_12m 近一年电话微信等, logs 日志条数, last_log}；没有日志为 null
+const visitCell = (c) => {
+  const v = c.visits;
+  if (!v) return '<span class="muted small">无日志</span>';
+  let head;
+  if (v.visits_12m > 0) {
+    const n = v.visits_12m;
+    const gap = n >= 12 ? `约 ${Math.round(365 / n)} 天/次` : n >= 2 ? `约 ${(12 / n).toFixed(1).replace(/\.0$/, '')} 个月/次` : '';
+    head = `<span class="visit-n">近一年 ${n} 次</span>${gap ? ` · ${gap}` : ''}`;
+  } else if (v.last_visit) head = `<span class="visit-late">超 ${Math.floor(v.days_since / 365)} 年未拜访</span>`;
+  else head = '<span class="muted">从未拜访</span>';
+  const last = [], total = [];
+  if (v.last_visit) last.push(`上次 ${esc(v.last_visit)}`, v.days_since >= 365 ? `${(v.days_since / 365).toFixed(1)} 年前` : v.days_since ? `${v.days_since} 天前` : '今天');
+  if (v.visits) total.push(`累计 ${v.visits} 次`);
+  if (v.contacts_12m) total.push(`电话微信 ${v.contacts_12m} 次`);
+  const line = (xs) => xs.length ? `<div class="muted small">${xs.map((x) => `<span class="nw">${x}</span>`).join(' · ')}</div>` : '';
+  return `<div class="visit-box" title="日志共 ${v.logs} 条，最近一条 ${esc(v.last_log || '')}；上门 = 市内 / 市外拜访，或未填类型但正文开头为拜访类词；电话微信 = 近一年其他日志"><div>${head}</div>${line(last)}${line(total)}</div>`;
+};
 const orderLink = (id, no) => id ? `<a data-order="${id}">${esc(no || id)}</a>` : esc(no || '');
 function options(list, valueKey, textKey, current, blank) {
   return `<option value="">${esc(blank)}</option>` + list.map((x) => `<option value="${esc(x[valueKey])}" ${String(x[valueKey]) === String(current ?? '') ? 'selected' : ''}>${esc(x[textKey])}</option>`).join('');
@@ -770,9 +793,9 @@ async function pageCustomers(view, params) {
     try {
       const res = await api('/api/customers', { ...q, size: 50 });
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 家客户</p>
-        <table><thead><tr><th>客户</th><th>所有者</th><th>周期</th><th>阶段</th><th>城市</th><th class="num">订单数</th><th class="num">订单额</th><th>最近订单</th><th class="num">回款额</th><th class="num">联系人</th></tr></thead><tbody>
-        ${res.rows.map((c) => `<tr class="click" data-cust="${c.id}"><td class="lead cust-col">${esc(c.name)}${severeTag(c)}${c.short && c.short !== c.name ? `<div class="muted small">${esc(c.short)}</div>` : ''}</td><td class="nowrap">${esc(c.owner)}</td><td class="nowrap small">${esc(c.life_text)}</td><td class="nowrap small">${esc(c.stage_text)}</td><td class="nowrap">${esc(c.city || '')}</td>
-          <td class="num">${fmtInt(c.orders)}</td><td class="num">${fmtMoney(c.order_amount)}</td><td class="nowrap">${esc(c.last_order || '—')}</td><td class="num">${fmtMoney(c.receipts)}</td><td class="num">${c.contacts}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">没有符合条件的客户</td></tr>'}
+        <table><thead><tr><th>客户</th><th>所有者</th><th>周期</th><th>阶段</th><th>城市</th><th>拜访频度</th><th class="num">订单数</th><th class="num">订单额</th><th>最近订单</th><th class="num">回款额</th><th class="num">联系人</th></tr></thead><tbody>
+        ${res.rows.map((c) => `<tr class="click" data-cust="${c.id}"><td class="lead cust-col">${esc(c.name)}${severeTag(c)}${c.short && c.short !== c.name ? `<div class="muted small">${esc(c.short)}</div>` : ''}</td><td class="nowrap">${esc(c.owner)}</td><td class="nowrap small">${esc(c.life_text)}</td><td class="nowrap small">${esc(c.stage_text)}</td><td class="nowrap">${esc(c.city || '')}</td><td>${visitCell(c)}</td>
+          <td class="num">${fmtInt(c.orders)}</td><td class="num">${fmtMoney(c.order_amount)}</td><td class="nowrap">${esc(c.last_order || '—')}</td><td class="num">${fmtMoney(c.receipts)}</td><td class="num">${c.contacts}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">没有符合条件的客户</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       list.querySelectorAll('tr[data-cust]').forEach((tr) => tr.addEventListener('click', () => openCustomer(Number(tr.dataset.cust))));

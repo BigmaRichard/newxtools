@@ -80,6 +80,28 @@ def _merge_spans(spans: List[Tuple[int, int]]) -> List[List[int]]:
     return out
 OPEN_PLAN = ("2", "4")  # gathering.status 未回 / 部分回款
 SEVERE_DAYS = 90        # 未回款计划逾期超过这么多天，客户标“严重逾期”（Richard 口径）
+ACTION_RECORD = "3"     # action.cale 记录（日程 1 / 待办 2、4 是计划，不算拜访）
+VISIT_TYPES = ("2", "3")  # action.type 市内拜访 / 市外拜访
+VISIT_WINDOW = 365      # “近一年”的天数
+# 2023 年以前的行动记录大多没填类型（type=0），按正文开头判断是否上门：先剥掉日期 / 时间 / 序号等引子，
+# 首个分句里出现拜访类词算上门，但以电话 / 微信 / 预约 / 计划等开头的不算（“电话拜访”“约定下周拜访”是联系或计划，不是上门）
+_VISIT_LEAD = re.compile(r"^[\s\d０-９.、,，:：()（）\-—/~]*(?:今天|今日|上午|下午|早上|中午|晚上|昨天|昨日|前天|本周|这周|上周|周[一二三四五六日天]|星期[一二三四五六日天]"
+                         r"|\d{1,2}月\d{1,2}[日号]?|\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}|[\d.]+[日号])*[\s,，、:：]*")
+_VISIT_WORDS = re.compile(r"^(?:去|到|赴|前往|再次|再|又|和|与|同|陪同?|带|跟)?[^，。；！？,;!?\n]{0,10}?(拜访|上门|现场|走访|登门|面谈|见面|拜见|参观)")
+_VISIT_NOT = re.compile(r"^(?:[^，。；！？,;!?\n]{0,6})?(电话|微信|QQ|邮件|短信|网上|致电|来电|视频|线上|约|预约|计划|准备|打算|下次|下周|下月|明天|后天|近期|快递|寄|发|询|回复|联系|沟通|跟进|催|报价|开票)")
+
+
+def is_visit(a_type: Any, subject: Any, content: Any) -> bool:
+    """一条行动记录是否上门拜访：类型为市内 / 市外拜访；没填类型的按正文开头判断（见 _VISIT_WORDS / _VISIT_NOT）。"""
+    t = str(a_type or "").strip()
+    if t in VISIT_TYPES:
+        return True
+    if t not in ("", "0"):
+        return False
+    text = _VISIT_LEAD.sub("", str(content or subject or "").strip(), count=1)
+    return bool(_VISIT_WORDS.search(text)) and not _VISIT_NOT.search(text)
+
+
 DICT_FIELDS = {
     "contract": ["status", "type", "confirm", "st_send", "pay_mode", "payment", *CONTRACT_CUSTOM_FIELDS],
     "gathering": ["status"],
@@ -173,6 +195,14 @@ class Lookups:
             cid = self.customer_id(r["cu_sn"])
             if cid is not None:
                 self.open_plans.setdefault(cid, []).append((r["date"], _num(r["money"])))
+        # 每个客户的行动记录（只取「记录」且日期合法的）：(日期, 是否上门)，按日期排好，用于客户页“拜访频度”；近一年 / 天数在取用时按当天算
+        self.visit_log: Dict[int, List[Tuple[str, bool]]] = {}
+        for r in conn.execute("SELECT cu_sn, type, subject, content, date FROM action WHERE _deleted_at IS NULL AND cale = ? AND date LIKE '____-__-__'", [ACTION_RECORD]):
+            cid = self.customer_id(r["cu_sn"])
+            if cid is not None:
+                self.visit_log.setdefault(cid, []).append((r["date"], is_visit(r["type"], r["subject"], r["content"])))
+        for log in self.visit_log.values():
+            log.sort()
         self._load_product_classes(conn)
         self._load_states()
         self.loaded_at = time.time()
@@ -347,6 +377,26 @@ class Lookups:
         if not hits:
             return None
         return {"days": max(h[0] for h in hits), "amount": round(sum(h[1] for h in hits), 2), "count": len(hits), "since": min(h[2] for h in hits)}
+
+    def visit_stats(self, cid: Any, today: Optional[dt.date] = None) -> Optional[Dict[str, Any]]:
+        """客户的拜访频度：近一年上门次数、上次上门日期与距今天数、累计上门次数、近一年其他联系（电话 / 微信等）次数、日志总条数。
+        只算日期不晚于今天的「记录」；没有任何日志返回 None。"""
+        log = self.visit_log.get(_int(cid, 0)) if cid is not None else None
+        if not log:
+            return None
+        today = today or dt.date.today()
+        today_s, since = today.isoformat(), (today - dt.timedelta(days=VISIT_WINDOW)).isoformat()
+        visits = [d for d, v in log if v and d <= today_s]
+        others = [d for d, v in log if not v and d <= today_s]
+        if not visits and not others:
+            return None
+        last = visits[-1] if visits else None
+        return {
+            "visits": len(visits), "visits_12m": sum(1 for d in visits if d > since), "last_visit": last,
+            "days_since": (today - dt.date.fromisoformat(last)).days if last else None,
+            "contacts_12m": sum(1 for d in others if d > since), "logs": len(visits) + len(others),
+            "last_log": max(visits[-1] if visits else "", others[-1] if others else "") or None,
+        }
 
     def customer(self, key: Any, numeric_is_id: bool = False) -> Optional[Dict[str, Any]]:
         cid = self.customer_id(key, numeric_is_id)
@@ -741,7 +791,7 @@ class Query(ReportQueries):
             "stage_text": self.lk.text("customer", "cu_status", c.get("cu_status")), "industry_text": self.lk.text("customer", "industry", c.get("industry")),
             "city": c.get("city"), "created": c.get("creatdate"), "modified": c.get("moddate"), "tel": c.get("tel"), "address": c.get("address"),
             "orders": c.get("orders") or 0, "order_amount": money(c.get("order_amount")), "last_order": c.get("last_order"),
-            "receipts": money(c.get("receipts")), "contacts": c.get("contacts") or 0,
+            "receipts": money(c.get("receipts")), "contacts": c.get("contacts") or 0, "visits": self.lk.visit_stats(c["id"], self.today),
         }
 
     def customers(self) -> Dict[str, Any]:

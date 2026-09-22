@@ -791,3 +791,25 @@ def test_severe_overdue_customer_tag(tmp_path):
     assert sales[1]["customer"]["severe"]["count"] == n
     plans = query(status="open").receivables()["rows"]
     assert any(p["customer"]["id"] == 1 and p["customer"]["severe"] for p in plans)
+
+
+def test_visit_frequency_per_customer(q):
+    """客户页“拜访频度”：上门 = 类型市内 / 市外拜访，或未填类型但正文开头是拜访类词；只算日期不晚于今天的「记录」，日程 / 待办与未来日期不算。"""
+    from web.server import is_visit
+    assert is_visit("2", "", "电话") and is_visit("3", "", "") and not is_visit("1", "", "上门拜访")     # 填了类型以类型为准
+    assert is_visit("0", "", "拜访天津中医药大学张祎老师") and is_visit("0", "上门拜访：武汉糖智", "") and is_visit("", "", "9月3日 上午到现场看柱子")
+    assert not is_visit("0", "", "电话拜访胡幸老师") and not is_visit("0", "", "预约下周拜访") and not is_visit("0", "", "联系客户，计划明天拜访")
+    assert not is_visit("0", "", "") and not is_visit(None, None, None)
+    rows = {r["id"]: r for r in q().customers()["rows"]}
+    v1 = rows[1]["visits"]        # 今天一次上门 + 2020-06-01 一次上门 + 2020-01-01 一次电话；2224 年那条和没日期的待办不算
+    assert v1["visits"] == 2 and v1["visits_12m"] == 1 and v1["last_visit"] == TODAY.isoformat() and v1["days_since"] == 0
+    assert v1["contacts_12m"] == 0 and v1["logs"] == 3 and v1["last_log"] == TODAY.isoformat()
+    v2 = rows[2]["visits"]        # 只有今天一条电话
+    assert v2["visits"] == 0 and v2["last_visit"] is None and v2["contacts_12m"] == 1 and v2["logs"] == 1
+    assert rows[3]["visits"] is None                                         # 没有日志
+    lk = q().lk
+    old = __import__("datetime").date(2021, 1, 1)                             # 站在 2021 年初看：上次上门 2020-06-01，近一年 1 次
+    assert lk.visit_stats(1, old)["visits_12m"] == 1 and lk.visit_stats(1, old)["last_visit"] == "2020-06-01"
+    assert q().customer_detail(1)["customer"]["visits"]["visits"] == 2
+    dl = build_export(q(), "customers")
+    assert dl.data[:2] == b"PK" and "近一年拜访".encode("utf-8") in __import__("zipfile").ZipFile(__import__("io").BytesIO(dl.data)).read("xl/worksheets/sheet1.xml")
