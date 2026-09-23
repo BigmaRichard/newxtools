@@ -70,6 +70,25 @@ PURCHASE_STATUS_FALLBACK = {"0": "待入库", "1": "生成入库单", "2": "部�
 PAY_PLAN_STATUS_FALLBACK = {"0": "未付", "1": "已付"}
 
 
+DIRECT_CITY_MARK = "直辖县级行政区划"   # CRM 把省 / 自治区直辖的县级市记成“省直辖县级行政区划(*)”“自治区直辖县级行政区划(*)”，真正的市 / 县在区县字段
+_ADDR_PROVINCE = re.compile(r"^(?:新疆维吾尔自治区|新疆|湖北省|湖北|海南省|海南|河南省|河南|广西壮族自治区|广西|西藏自治区|西藏|内蒙古自治区|内蒙古|宁夏回族自治区|宁夏)")
+_ADDR_CITY = re.compile(r"^([\u4e00-\u9fa5]{2,5}?(?:市|县|林区))")
+
+
+def display_city(city: Any, district: Any, address: Any = None) -> str:
+    """客户城市的显示值：城市字段是“…直辖县级行政区划(*)”占位符时改显示区县字段（石河子市、天门市、定安县…）；
+    区县也没填的从地址开头推断（去掉省名后取到“市 / 县 / 林区”为止），推断不出显示“直辖县级”。其余客户按 CRM 的城市字段原样显示。"""
+    c = str(city or "").strip()
+    if DIRECT_CITY_MARK not in c:
+        return c
+    d = str(district or "").strip()
+    if d:
+        return d
+    m = _ADDR_CITY.match(_ADDR_PROVINCE.sub("", str(address or "").strip(), count=1))
+    return m.group(1) if m else "直辖县级"
+
+
+
 def money(value: Any) -> float:
     try:
         return round(float(value), 2)
@@ -328,7 +347,7 @@ class ReportQueries:
         def cust(cid: int) -> Dict[str, Any]:
             c = self.lk.customers.get(cid) or {}
             return {"id": cid, "name": c.get("cu_name") or c.get("m_name") or f"[已删除 {cid}]", "owner": self.lk.user_name(c.get("owner")), "owner_part": c.get("owner"),
-                    "life_text": self.lk.text("customer", "life", c.get("life")), "city": c.get("city") or "", "severe": self.lk.severe(cid, today)}
+                    "life_text": self.lk.text("customer", "life", c.get("life")), "city": display_city(c.get("city"), c.get("district"), c.get("address")), "severe": self.lk.severe(cid, today)}
 
         if owner:
             facts = [f for f in facts if str((self.lk.customers.get(f["cid"]) or {}).get("owner") or "") == owner]

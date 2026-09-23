@@ -43,7 +43,7 @@ from sync.specs import CONTRACT_CUSTOM_FIELDS
 from sync.store import col_name
 from web.auth import AccessControl
 from web.export import EXPORT_MAX, Download, build_export
-from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries, _num
+from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries, _num, display_city
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("xtools.web")
@@ -174,7 +174,7 @@ class Lookups:
         self.name_to_part: Dict[str, str] = {u["name"]: part for part, u in self.users.items()}
         self.customers: Dict[int, Dict[str, Any]] = {}
         self.key_to_id: Dict[str, int] = {}
-        for r in conn.execute("SELECT id, sn, cu_name, m_name, owner, life, type, cu_status, city, state, district FROM customer WHERE _deleted_at IS NULL"):
+        for r in conn.execute("SELECT id, sn, cu_name, m_name, owner, life, type, cu_status, city, state, district, address FROM customer WHERE _deleted_at IS NULL"):
             self.customers[r["id"]] = dict(r)
             if r["sn"]:
                 self.key_to_id[r["sn"]] = r["id"]
@@ -789,7 +789,7 @@ class Query(ReportQueries):
     CUSTOMER_LIST_SQL = """
         WITH o AS (SELECT cu_sn, COUNT(*) n, SUM(CAST(sum AS REAL)) amt, MAX(date) last_date FROM contract WHERE _deleted_at IS NULL AND status <> '3' GROUP BY cu_sn),
              r AS (SELECT cu_sn, SUM(CAST(money AS REAL)) amt, MAX(date) last_date FROM gathering_note WHERE _deleted_at IS NULL GROUP BY cu_sn)
-        SELECT c.id, c.sn, c.cu_name, c.m_name, c.owner, c.life, c.type, c.cu_status, c.city, c.state, c.industry, c.creatdate, c.moddate, c.tel, c.address,
+        SELECT c.id, c.sn, c.cu_name, c.m_name, c.owner, c.life, c.type, c.cu_status, c.city, c.district, c.state, c.industry, c.creatdate, c.moddate, c.tel, c.address,
                COALESCE(o1.n, 0) + COALESCE(o2.n, 0) AS orders,
                COALESCE(o1.amt, 0) + COALESCE(o2.amt, 0) AS order_amount,
                COALESCE(o1.last_date, o2.last_date) AS last_order,
@@ -808,7 +808,7 @@ class Query(ReportQueries):
             "owner": self.lk.user_name(c.get("owner")), "owner_part": c.get("owner"), "severe": self.lk.severe(c["id"], self.today),
             "life_text": self.lk.text("customer", "life", c.get("life")), "type_text": self.lk.text("customer", "type", c.get("type")),
             "stage_text": self.lk.text("customer", "cu_status", c.get("cu_status")), "industry_text": self.lk.text("customer", "industry", c.get("industry")),
-            "city": c.get("city"), "created": c.get("creatdate"), "modified": c.get("moddate"), "tel": c.get("tel"), "address": c.get("address"),
+            "city": display_city(c.get("city"), c.get("district"), c.get("address")), "created": c.get("creatdate"), "modified": c.get("moddate"), "tel": c.get("tel"), "address": c.get("address"),
             "orders": c.get("orders") or 0, "order_amount": money(c.get("order_amount")), "last_order": c.get("last_order"),
             "receipts": money(c.get("receipts")), "contacts": c.get("contacts") or 0, "visits": self.lk.visit_stats(c["id"], self.today),
         }
@@ -865,7 +865,7 @@ class Query(ReportQueries):
             {"year": r["y"], "count": r["n"], "amount": money(r["a"])}
             for r in self.rows(f"SELECT substr(date,1,4) y, COUNT(*) n, SUM(CAST(sum AS REAL)) a FROM contract WHERE _deleted_at IS NULL AND status <> '3' AND cu_sn IN ({marks}) GROUP BY y ORDER BY y", keys)
         ]
-        extras = self.raw_extras("customer", cid, set(c.keys()) | {"contact", "cu_name", "m_name", "sn", "owner", "life", "type", "cu_status", "city", "state", "industry", "creatdate", "moddate", "tel", "address"})
+        extras = self.raw_extras("customer", cid, set(c.keys()) | {"contact", "cu_name", "m_name", "sn", "owner", "life", "type", "cu_status", "city", "district", "state", "industry", "creatdate", "moddate", "tel", "address"})
         return {"customer": self.customer_row(c), "contacts": contacts, "orders": orders, "receipts": receipts, "open_plans": plans, "actions": actions, "yearly": yearly, "extras": extras}
 
     # ---- 应收（计划回款）

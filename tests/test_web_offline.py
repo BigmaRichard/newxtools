@@ -830,3 +830,17 @@ def test_customers_sort_keys_and_direction(q):
     assert res["sort"] == "last" and res["dir"] == "desc" and res["rows"][0]["id"] == 2      # 缺省：最近订单从新到旧
     assert q(sort="name").customers()["dir"] == "asc" and q(sort="amount").customers()["dir"] == "desc"
     assert build_export(q(sort="visits", dir="asc"), "customers").data[:2] == b"PK"                # 导出跟随排序参数
+
+
+def test_display_city_for_province_administered_county_level(q):
+    """省 / 自治区直辖县级市（石河子、天门、定安…）：CRM 城市字段是占位符，前台显示区县字段；区县也空的从地址推断；其他客户原样。"""
+    from web.reports import display_city
+    assert display_city("自治区直辖县级行政区划(*)", "石河子市", "") == "石河子市"
+    assert display_city("省直辖县级行政区划(*)", "定安县", "海南省定安县") == "定安县"
+    assert display_city("省直辖县级行政区划(*)", "", "湖北省天门市工业园") == "天门市"
+    assert display_city("自治区直辖县级行政区划(*)", "", "新疆维吾尔自治区石河子市北二路") == "石河子市"
+    assert display_city("省直辖县级行政区划(*)", "", "神农架林区木鱼镇") == "神农架林区"
+    assert display_city("省直辖县级行政区划(*)", "", "河南省") == "直辖县级"
+    assert display_city("苏州市", "姑苏区", "江苏省苏州市") == "苏州市" and display_city("", "", "") == "" and display_city(None, None, None) == ""
+    row = q().customer_row({"id": 1, "city": "自治区直辖县级行政区划(*)", "district": "石河子市", "address": ""})
+    assert row["city"] == "石河子市"
