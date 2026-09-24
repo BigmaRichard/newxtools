@@ -126,6 +126,13 @@ details.dup > summary:hover { color: var(--accent); }
 .fold-chip .eye svg { width: 12px; height: 12px; display: block; }
 .fold-chip .eye .eye-open { display: none; } .fold-chip .eye .eye-off { display: block; }
 .who-cell .mid { display: flex; align-items: flex-end; gap: 6px; }
+/* 订单表“客户”“主题”表头上的小眼睛：点一下整列内容不显示（截屏时不露客户名 / 主题），再点恢复；记在 localStorage */
+.col-eye { display: inline-flex; vertical-align: middle; margin-left: 5px; color: var(--muted); cursor: pointer; }
+.col-eye:hover { color: var(--accent); }
+.col-eye svg { width: 13px; height: 13px; display: block; }
+.col-eye .eye-off { display: none; } .col-eye.off .eye-open { display: none; } .col-eye.off .eye-off { display: block; }
+table.mask-customer td.col-customer .colv, table.mask-subject td.col-subject .colv { display: none; }
+table.mask-customer td.col-customer::after, table.mask-subject td.col-subject::after { content: '···'; color: var(--muted); letter-spacing: 2px; }
 .who-cell .mid .col { flex: 1 1 auto; min-width: 0; }
 .sev { flex: 0 0 auto; display: grid; grid-template-columns: repeat(2, 14px); grid-auto-rows: 14px; gap: 2px; }
 .sev i { display: flex; align-items: center; justify-content: center; }
@@ -763,16 +770,19 @@ async function pageOrders(view, params) {
     list.classList.add('loading');
     try {
       const res = await api('/api/orders', { ...q, size: 50 });
+      const mask = readMask();
       view.querySelectorAll('#kindSeg [data-cnt]').forEach((el) => { el.textContent = res.kinds ? fmtInt(res.kinds[el.dataset.cnt]) : ''; });
       const kindLabel = (KINDS.find(([k]) => k === res.kind) || [])[1];
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 单，金额合计 <b>${fmtMoney(res.amount)}</b>（不含意外中止）${kindLabel ? ` · 销售类型：<b>${kindLabel}</b>` : ''}</p>
-        <table><thead><tr><th>日期</th><th>单号</th><th>客户</th><th>主题</th><th class="num">金额</th><th class="num">已回款</th><th>状态</th><th>发货</th><th>业务员</th></tr></thead><tbody>
-        ${res.rows.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="lead">${custLink(o.customer)}</td><td><div class="ellipsis" title="${esc(o.subject)}">${esc(o.subject)}</div>${termLine(o)}</td>
+        <table class="${[...mask].map((c) => 'mask-' + c).join(' ')}"><thead><tr><th>日期</th><th>单号</th><th>客户${colEye('customer', mask.has('customer'))}</th><th>主题${colEye('subject', mask.has('subject'))}</th><th class="num">金额</th><th class="num">已回款</th><th>状态</th><th>发货</th><th>业务员</th></tr></thead><tbody>
+        ${res.rows.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="lead col-customer"><span class="colv">${custLink(o.customer)}</span></td><td class="col-subject"><div class="colv"><div class="ellipsis" title="${esc(o.subject)}">${esc(o.subject)}</div>${termLine(o)}</div></td>
           <td class="num">${fmtMoney(o.amount)}${o.money_type !== 'RMB' ? ` <span class="muted small">${esc(o.money_type)}</span>` : ''}</td><td class="num">${o.received ? fmtMoney(o.received) : '<span class="muted">—</span>'}</td>
           <td>${statusTag(o)}</td><td class="nowrap small">${esc(o.st_send_text)}${o.shipments ? ` <span class="muted">(${o.shipments})</span>` : ''}</td><td class="nowrap">${esc(o.who)}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的订单</td></tr>'}
         </tbody></table>`;
       list.appendChild(pager(res, load));
       list.querySelectorAll('tr[data-order]').forEach((tr) => tr.addEventListener('click', () => openOrder(Number(tr.dataset.order))));
+      list.querySelectorAll('.col-eye').forEach((el) => el.addEventListener('click', (e) => e.stopPropagation()));
+      bindColEyes(list.querySelector('table'));
       bindLinks(list);
     } catch (e) { list.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
     list.classList.remove('loading');
@@ -1194,6 +1204,19 @@ const triIcon = (cls, title) => `<svg class="tri ${cls}" viewBox="0 0 24 24" ari
 // 业务员卡上的小眼睛：折叠 / 展开这一格，隐藏名单只记在本机浏览器，不影响统计与导出
 const EYE_SVG = `<svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.6 12S5.7 5 12 5s10.4 7 10.4 7-4.1 7-10.4 7S1.6 12 1.6 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>`
   + `<svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.4 8.6C5 12.6 8.3 15 12 15s7-2.4 9.6-6.4"/><path d="M4.3 13.7 2.4 16.6M9 15.7l-.8 3.1M15 15.7l.8 3.1M19.7 13.7l1.9 2.9"/></svg>`;
+const MASK_KEY = 'xtools.ordersMask';   // 订单表被隐藏的列（customer / subject）
+const readMask = () => { try { return new Set(JSON.parse(localStorage.getItem(MASK_KEY) || '[]')); } catch (e) { return new Set(); } };
+const writeMask = (set) => { try { localStorage.setItem(MASK_KEY, JSON.stringify([...set])); } catch (e) { /* 隐私模式下忽略 */ } };
+const colEye = (col, masked) => `<span class="col-eye${masked ? ' off' : ''}" data-col="${col}" title="隐藏 / 显示这一列的内容（截屏时不露出）">${EYE_SVG}</span>`;
+function bindColEyes(table) {
+  table.querySelectorAll('.col-eye').forEach((el) => el.addEventListener('click', () => {
+    const mask = readMask(), col = el.dataset.col;
+    mask.has(col) ? mask.delete(col) : mask.add(col);
+    writeMask(mask);
+    el.classList.toggle('off', mask.has(col));
+    table.classList.toggle('mask-' + col, mask.has(col));
+  }));
+}
 const HIDDEN_WHO_KEY = 'xtools.hiddenWho';
 const readHiddenWho = () => { try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_WHO_KEY) || '[]')); } catch (e) { return new Set(); } };
 const writeHiddenWho = (set) => { try { localStorage.setItem(HIDDEN_WHO_KEY, JSON.stringify([...set])); } catch (e) { /* 隐私模式下忽略 */ } };
