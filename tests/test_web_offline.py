@@ -859,6 +859,14 @@ def test_orders_kind_buttons(tmp_path):
          "date": f"{y}-08-02", "end_date": f"{y}-08-02", "money_type": "RMB", "goods": [{"id": "981", "prod": "[id:2]", "prod_name": "无编号产品", "amount": "1.000", "un_price": "500", "sum": "500.00"},
                                                                                        {"id": "982", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": "1000", "sum": "1000.00"}]},
     ]
+    daiso = [{"id": "41", "sn": "260227AB-20kg/桶", "name": "SP-100-8-C4-NP", "model": "-", "unit": "公斤", "price": "8800.0000", "status": "正常", "class": "制备色谱填料", "lnum": "10.000", "ldown": "0.000", "moddate": "2026-01-01"},
+             {"id": "42", "sn": "DP-001", "name": "Daisopak SP-100-8-ODS-P Packed Column 4.6mmI.D.x250mm", "model": "-", "unit": "支", "price": "3000.0000", "status": "正常", "class": "Daiso", "lnum": "1.000", "ldown": "0.000", "moddate": "2026-01-01"}]
+    extra.append({"id": "99", "No.": f"mw{y}0803099", "subject": "Daiso 填料", "cu_sn": "[id:1]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "8800.00", "who": "王勇尊",
+                  "date": f"{y}-08-03", "end_date": f"{y}-08-03", "money_type": "RMB", "goods": [{"id": "991", "prod": "260227AB-20kg/桶", "prod_name": "SP-100-8-C4-NP", "amount": "1.000", "un_price": "8800", "sum": "8800.00"}]})
+    extra.append({"id": "100", "No.": f"mw{y}0804100", "subject": "Daisopak 柱", "cu_sn": "[id:2]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "3000.00", "who": "王勇尊",
+                  "date": f"{y}-08-04", "end_date": f"{y}-08-04", "money_type": "RMB", "goods": [{"id": "1001", "prod": "DP-001", "prod_name": "Daisopak", "amount": "1.000", "un_price": "3000", "sum": "3000.00"}]})
+    store.upsert_raw("product", daiso)
+    store.upsert_normalized(SPEC_BY_DT["product"], daiso)
     store.upsert_raw("contract", extra)
     store.upsert_normalized(SPEC_BY_DT["contract"], extra)
     store.close()
@@ -869,13 +877,15 @@ def test_orders_kind_buttons(tmp_path):
 
     assert lk.classes_matching_group("色谱柱") == ["色谱柱"] and lk.classes_matching_group("色谱介质") == ["制备色谱填料"]
     allq = query().orders()
-    assert allq["kind"] == "" and allq["kinds"] == {"sample": 1, "media": 2, "column": 4}   # 色谱柱：10、11、97、98；填料：12、98
+    # 色谱柱：10、11、97、98（Daisopak 的分类是 Daiso，不在色谱柱大类）；填料：12、98、99；Daiso：99（SP- 填料）、100（Daisopak 柱）
+    assert allq["kind"] == "" and allq["kinds"] == {"sample": 1, "media": 3, "column": 4, "daiso": 2}
+    assert sorted(o["id"] for o in query(kind="daiso").orders()["rows"]) == [99, 100]
     sample = query(kind="sample").orders()
     assert sample["kind"] == "sample" and [o["id"] for o in sample["rows"]] == [97] and sample["amount"] == 0.0
-    assert sorted(o["id"] for o in query(kind="media").orders()["rows"]) == [12, 98]
+    assert sorted(o["id"] for o in query(kind="media").orders()["rows"]) == [12, 98, 99]
     assert sorted(o["id"] for o in query(kind="column").orders()["rows"]) == [10, 11, 97, 98]
     # 按钮上的单数只跟其他条件走，不受当前按钮影响；导出跟随按钮
     who = query(kind="media", who="王勇尊").orders()          # 12 是李勇刚的单，王勇尊名下的填料单只有 98
-    assert who["kinds"] == {"sample": 1, "media": 1, "column": 4} and who["total"] == 1 and who["rows"][0]["id"] == 98
+    assert who["kinds"] == {"sample": 1, "media": 2, "column": 4, "daiso": 2} and who["total"] == 2 and sorted(o["id"] for o in who["rows"]) == [98, 99]
     assert query(kind="bogus").orders()["kind"] == "" and query(kind="bogus").orders()["total"] == allq["total"]
     assert build_export(query(kind="sample"), "orders").filename.endswith(".xlsx")

@@ -742,7 +742,8 @@ function topRows(list, nameFn, subFn) {
 const termLine = (o) => { const parts = [['发票', o.invoice_type], ['付款', o.pay_terms], ['货期', o.lead_time], ['试用', o.trial === '' ? '' : o.trial], ['首单', o.first_sign]].filter(([, v]) => v); return parts.length ? `<div class="muted small">${parts.map(([k, v]) => `${k} ${esc(v)}`).join(' · ')}</div>` : ''; };
 async function pageOrders(view, params) {
   const f = { q: '', from: '', to: '', status: '', who: '', st_send: '', sort: '', page: 1, j7: '', j8: '', j9: '', kind: '', prod: '', class: '', group: '', month: '', state: '', type: '', ...params };
-  const KINDS = [['sample', '免费样品', '金额为 0 的订单'], ['media', '填料', '订单里有色谱介质类产品'], ['column', '色谱柱', '订单里有色谱柱类产品']];
+  const KINDS = [['sample', '免费样品', '金额为 0 的订单'], ['media', '填料', '订单里有色谱介质类产品'], ['column', '色谱柱', '订单里有色谱柱类产品'],
+    ['daiso', 'Daiso', '订单里有 Daiso 产品：Daisopak 色谱柱，或 DAISOGEL SP / IR / MP 系列填料']];
   const terms = (META.order_terms || []).filter((t) => t.has_dict && ['j7', 'j8', 'j9'].includes(t.key));
   const hidden = ['prod', 'class', 'group', 'month', 'state', 'type', 'owner'].filter((k) => f[k]);
   view.innerHTML = `<h1>订单查询</h1>

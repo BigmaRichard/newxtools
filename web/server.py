@@ -80,7 +80,9 @@ def _merge_spans(spans: List[Tuple[int, int]]) -> List[List[int]]:
     return out
 OPEN_PLAN = ("2", "4")  # gathering.status 未回 / 部分回款
 SEVERE_DAYS = 90        # 未回款计划逾期超过这么多天，客户标“严重逾期”（Richard 口径）
-ORDER_KINDS = {"sample": "", "media": "色谱介质", "column": "色谱柱"}   # 订单页销售类型按钮：免费样品（金额 0）/ 填料（大类含“色谱介质”）/ 色谱柱
+ORDER_KINDS = {"sample": "", "media": "色谱介质", "column": "色谱柱", "daiso": ""}   # 订单页销售类型按钮：免费样品（金额 0）/ 填料（大类含“色谱介质”）/ 色谱柱 / Daiso
+# Daiso 产品：分类为 Daiso（Daisopak 色谱柱），或产品名以 Daiso / SP- / IR- / MP-（DAISOGEL 球形 / 无定形 / MP 系列填料）开头；正式库 1,713 个产品
+DAISO_PRODUCT = "(p.class = 'Daiso' OR p.name LIKE 'Daiso%' OR p.name LIKE 'SP-%' OR p.name LIKE 'IR-%' OR p.name LIKE 'MP-%')"
 ACTION_RECORD = "3"     # action.cale 记录（日程 1 / 待办 2、4 是计划，不算拜访）
 VISIT_TYPES = ("2", "3")  # action.type 市内拜访 / 市外拜访
 VISIT_WINDOW = 365      # “近一年”的天数
@@ -752,6 +754,8 @@ class Query(ReportQueries):
     def _order_kind_clause(self, kind: str) -> Tuple[str, List[Any]]:
         if kind == "sample":
             return "CAST(o.sum AS REAL) = 0", []
+        if kind == "daiso":
+            return f"o.id IN (SELECT g.contract_id FROM contract_goods g {PRODUCT_JOIN} WHERE {DAISO_PRODUCT})", []
         titles = self.lk.classes_matching_group(ORDER_KINDS[kind])
         if not titles:
             return "0", []
