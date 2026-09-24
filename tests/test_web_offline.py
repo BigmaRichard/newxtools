@@ -886,6 +886,15 @@ def test_orders_kind_buttons(tmp_path):
     assert sorted(o["id"] for o in query(kind="column").orders()["rows"]) == [10, 11, 97, 98]
     # 按钮上的单数只跟其他条件走，不受当前按钮影响；导出跟随按钮
     who = query(kind="media", who="王勇尊").orders()          # 12 是李勇刚的单，王勇尊名下的填料单只有 98
-    assert who["kinds"] == {"sample": 1, "media": 2, "column": 4, "daiso": 2} and who["total"] == 2 and sorted(o["id"] for o in who["rows"]) == [98, 99]
+    assert who["kinds"] == {"sample": 0, "media": 2, "column": 1, "daiso": 1} and who["total"] == 2 and sorted(o["id"] for o in who["rows"]) == [98, 99]   # 其他按钮的数是“再按下它”后的单数
     assert query(kind="bogus").orders()["kind"] == "" and query(kind="bogus").orders()["total"] == allq["total"]
+    # 同时按下几个按钮取交集：Daiso 的免费样品；按钮上的单数 = 其他条件 + 已按下的其他按钮 + 自己
+    both = query(kind="sample,daiso").orders()
+    assert both["kind"] == "sample,daiso" and both["total"] == 0 and both["kinds"]["sample"] == 0 and both["kinds"]["daiso"] == 0
+    assert both["kinds"] == {"sample": 0, "media": 0, "column": 0, "daiso": 0}   # 交集为空，其他按钮再按下也是 0
+    only = query(kind="sample").orders()["kinds"]
+    assert only == {"sample": 1, "media": 0, "column": 1, "daiso": 0}          # 免费样品里只有 97 一张色谱柱单
+    cm = query(kind="column,media").orders()
+    assert cm["total"] == 1 and cm["rows"][0]["id"] == 98 and cm["kinds"] == {"sample": 0, "media": 1, "column": 1, "daiso": 0}
+    assert query(kind="daiso,bogus,daiso").orders()["kind"] == "daiso"
     assert build_export(query(kind="sample"), "orders").filename.endswith(".xlsx")

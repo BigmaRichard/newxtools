@@ -729,11 +729,13 @@ class Query(ReportQueries):
             else:
                 clauses.append("0")
         self.date_clause("o", clauses, args)
-        # 销售类型按钮（Richard）：免费样品 = 金额为 0 的订单；填料 / 色谱柱 = 明细里有该大类产品的订单（一单两类都有时两边都算）
+        # 销售类型按钮（Richard）：免费样品 = 金额为 0 的订单；填料 / 色谱柱 / Daiso = 明细里有该类产品的订单（一单两类都有时两边都算）。
+        # 可以同时按下几个，条件取交集（如 sample,daiso = Daiso 的免费样品）；kind 参数为逗号分隔
         kind_clauses = {k: self._order_kind_clause(k) for k in ORDER_KINDS}
-        kind = self.get("kind")
-        if kind in kind_clauses:
-            c, a = kind_clauses[kind]
+        selected = list(dict.fromkeys(k for k in (self.get("kind") or "").split(",") if k in kind_clauses))
+        base_clauses, base_args = list(clauses), list(args)
+        for k in selected:
+            c, a = kind_clauses[k]
             clauses.append(c)
             args.extend(a)
         where = " WHERE " + " AND ".join(clauses)
@@ -741,14 +743,17 @@ class Query(ReportQueries):
         total = self.one(f"SELECT COUNT(*) n, SUM(CASE WHEN o.status <> '3' THEN CAST(o.sum AS REAL) ELSE 0 END) a FROM contract o{where}", args) or {}
         sort = {"amount": "CAST(o.sum AS REAL) DESC, o.id DESC", "date_asc": "o.date ASC, o.id ASC"}.get(self.get("sort"), "o.date DESC, o.id DESC")
         rows = self.enrich_orders(self.rows(f"{self.ORDER_SELECT}{where} ORDER BY {sort} LIMIT ? OFFSET ?", [*args, size, offset]))
-        # 三个按钮上的单数：按当前其他条件各算一次（不含按钮自身的条件）
-        base_clauses = [c for c in clauses if kind not in kind_clauses or c != kind_clauses[kind][0]]
-        base_args = args[: len(args) - len(kind_clauses[kind][1])] if kind in kind_clauses else list(args)
+        # 每个按钮上的单数 = 当前其他条件 + 已按下的其他按钮 + 这个按钮（即“再按下它会剩多少单”；已按下的就是当前总数）
         kinds = {}
         for k, (c, a) in kind_clauses.items():
-            r = self.one(f"SELECT COUNT(*) n FROM contract o WHERE {' AND '.join(base_clauses + [c])}", [*base_args, *a]) or {}
+            others = [x for x in selected if x != k] + [k]
+            cs, as_ = list(base_clauses), list(base_args)
+            for x in others:
+                cs.append(kind_clauses[x][0])
+                as_.extend(kind_clauses[x][1])
+            r = self.one(f"SELECT COUNT(*) n FROM contract o WHERE {' AND '.join(cs)}", as_) or {}
             kinds[k] = r.get("n") or 0
-        return {"total": total.get("n") or 0, "amount": money(total.get("a")), "page": page, "size": size, "kind": kind if kind in kind_clauses else "",
+        return {"total": total.get("n") or 0, "amount": money(total.get("a")), "page": page, "size": size, "kind": ",".join(selected),
                 "kinds": kinds, "rows": [self.order_row(r) for r in rows]}
 
     def _order_kind_clause(self, kind: str) -> Tuple[str, List[Any]]:

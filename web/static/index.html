@@ -754,7 +754,7 @@ async function pageOrders(view, params) {
       <select name="who">${userOptions(f.who, '全部业务员')}</select>
       <select name="st_send">${dictOptions('contract.st_send', f.st_send, '发货状态')}</select>
       ${terms.map((t) => `<select name="${t.key}">${dictOptions('contract.' + t.key, f[t.key], t.name.replace(/^[一二三四五六七八九十]+、/, ''))}</select>`).join('')}
-      <span class="seg" id="kindSeg">${KINDS.map(([k, label, tip]) => `<button type="button" class="seg-btn${f.kind === k ? ' on' : ''}" data-kind="${k}" title="${tip}；再点一次取消">${label}<span class="cnt" data-cnt="${k}"></span></button>`).join('')}</span>
+      <span class="seg" id="kindSeg">${KINDS.map(([k, label, tip]) => `<button type="button" class="seg-btn${f.kind.split(',').includes(k) ? ' on' : ''}" data-kind="${k}" title="${tip}；可与其他按钮同时按下取交集，再点一次取消">${label}<span class="cnt" data-cnt="${k}"></span></button>`).join('')}</span>
       <input type="hidden" name="kind" value="${esc(f.kind)}">
       <select name="sort"><option value="">按日期（新→旧）</option><option value="date_asc" ${f.sort === 'date_asc' ? 'selected' : ''}>按日期（旧→新）</option><option value="amount" ${f.sort === 'amount' ? 'selected' : ''}>按金额</option></select>
       ${hidden.map((k) => `<input type="hidden" name="${k}" value="${esc(f[k])}">`).join('')}
@@ -773,7 +773,7 @@ async function pageOrders(view, params) {
       const res = await api('/api/orders', { ...q, size: 50 });
       const mask = readMask();
       view.querySelectorAll('#kindSeg [data-cnt]').forEach((el) => { el.textContent = res.kinds ? fmtInt(res.kinds[el.dataset.cnt]) : ''; });
-      const kindLabel = (KINDS.find(([k]) => k === res.kind) || [])[1];
+      const kindLabel = (res.kind || '').split(',').map((k) => (KINDS.find(([x]) => x === k) || [])[1]).filter(Boolean).join(' + ');
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 单，金额合计 <b>${fmtMoney(res.amount)}</b>（不含意外中止）${kindLabel ? ` · 销售类型：<b>${kindLabel}</b>` : ''}</p>
         <table class="${[...mask].map((c) => 'mask-' + c).join(' ')}"><thead><tr><th>日期</th><th>单号</th><th>客户${colEye('customer', mask.has('customer'))}</th><th>主题${colEye('subject', mask.has('subject'))}</th><th class="num">金额</th><th class="num">已回款</th><th>状态</th><th>发货</th><th>业务员</th></tr></thead><tbody>
         ${res.rows.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="lead col-customer"><span class="colv">${custLink(o.customer)}</span></td><td class="col-subject"><div class="colv"><div class="ellipsis" title="${esc(o.subject)}">${esc(o.subject)}</div>${termLine(o)}</div></td>
@@ -792,10 +792,12 @@ async function pageOrders(view, params) {
   bindExport(view, () => readFilters($('#filters')));
   view.querySelectorAll('a[data-clear]').forEach((a) => a.addEventListener('click', () => { const el = view.querySelector(`input[name=${a.dataset.clear}]`); if (el) el.value = ''; a.parentElement.remove(); load(1); }));
   $('#reset').addEventListener('click', () => view.querySelectorAll('#kindSeg .seg-btn').forEach((x) => x.classList.remove('on')));
-  view.querySelectorAll('#kindSeg .seg-btn').forEach((b) => b.addEventListener('click', () => {   // 单选，再点一次取消
+  view.querySelectorAll('#kindSeg .seg-btn').forEach((b) => b.addEventListener('click', () => {   // 可多选，条件取交集；再点一次取消
     const input = view.querySelector('input[name=kind]');
-    input.value = input.value === b.dataset.kind ? '' : b.dataset.kind;
-    view.querySelectorAll('#kindSeg .seg-btn').forEach((x) => x.classList.toggle('on', x.dataset.kind === input.value));
+    const on = new Set(input.value.split(',').filter(Boolean));
+    on.has(b.dataset.kind) ? on.delete(b.dataset.kind) : on.add(b.dataset.kind);
+    input.value = KINDS.map(([k]) => k).filter((k) => on.has(k)).join(',');
+    view.querySelectorAll('#kindSeg .seg-btn').forEach((x) => x.classList.toggle('on', on.has(x.dataset.kind)));
     load(1);
   }));
   load(Number(f.page) || 1);
