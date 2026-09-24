@@ -80,6 +80,7 @@ def _merge_spans(spans: List[Tuple[int, int]]) -> List[List[int]]:
     return out
 OPEN_PLAN = ("2", "4")  # gathering.status 未回 / 部分回款
 SEVERE_DAYS = 90        # 未回款计划逾期超过这么多天，客户标“严重逾期”（Richard 口径）
+ORDER_KINDS = {"sample": "", "media": "色谱介质", "column": "色谱柱"}   # 订单页销售类型按钮：免费样品（金额 0）/ 填料（大类含“色谱介质”）/ 色谱柱
 ACTION_RECORD = "3"     # action.cale 记录（日程 1 / 待办 2、4 是计划，不算拜访）
 VISIT_TYPES = ("2", "3")  # action.type 市内拜访 / 市外拜访
 VISIT_WINDOW = 365      # “近一年”的天数
@@ -263,6 +264,10 @@ class Lookups:
 
     def classes_in_group(self, group: str) -> List[str]:
         return [c["title"] for c in self.product_classes if c["group"] == group]
+
+    def classes_matching_group(self, keyword: str) -> List[str]:
+        """大类名里含关键字（如“色谱柱”匹配“1.色谱柱”）的全部分类标题。"""
+        return [c["title"] for c in self.product_classes if keyword in (c["group"] or "")]
 
     # ---- 省份：字典 customer.state 优先，否则按该代码下最常见的城市 / 区推断
     def _load_states(self) -> None:
@@ -722,12 +727,35 @@ class Query(ReportQueries):
             else:
                 clauses.append("0")
         self.date_clause("o", clauses, args)
+        # 销售类型按钮（Richard）：免费样品 = 金额为 0 的订单；填料 / 色谱柱 = 明细里有该大类产品的订单（一单两类都有时两边都算）
+        kind_clauses = {k: self._order_kind_clause(k) for k in ORDER_KINDS}
+        kind = self.get("kind")
+        if kind in kind_clauses:
+            c, a = kind_clauses[kind]
+            clauses.append(c)
+            args.extend(a)
         where = " WHERE " + " AND ".join(clauses)
         page, size, offset = self.page()
         total = self.one(f"SELECT COUNT(*) n, SUM(CASE WHEN o.status <> '3' THEN CAST(o.sum AS REAL) ELSE 0 END) a FROM contract o{where}", args) or {}
         sort = {"amount": "CAST(o.sum AS REAL) DESC, o.id DESC", "date_asc": "o.date ASC, o.id ASC"}.get(self.get("sort"), "o.date DESC, o.id DESC")
         rows = self.enrich_orders(self.rows(f"{self.ORDER_SELECT}{where} ORDER BY {sort} LIMIT ? OFFSET ?", [*args, size, offset]))
-        return {"total": total.get("n") or 0, "amount": money(total.get("a")), "page": page, "size": size, "rows": [self.order_row(r) for r in rows]}
+        # 三个按钮上的单数：按当前其他条件各算一次（不含按钮自身的条件）
+        base_clauses = [c for c in clauses if kind not in kind_clauses or c != kind_clauses[kind][0]]
+        base_args = args[: len(args) - len(kind_clauses[kind][1])] if kind in kind_clauses else list(args)
+        kinds = {}
+        for k, (c, a) in kind_clauses.items():
+            r = self.one(f"SELECT COUNT(*) n FROM contract o WHERE {' AND '.join(base_clauses + [c])}", [*base_args, *a]) or {}
+            kinds[k] = r.get("n") or 0
+        return {"total": total.get("n") or 0, "amount": money(total.get("a")), "page": page, "size": size, "kind": kind if kind in kind_clauses else "",
+                "kinds": kinds, "rows": [self.order_row(r) for r in rows]}
+
+    def _order_kind_clause(self, kind: str) -> Tuple[str, List[Any]]:
+        if kind == "sample":
+            return "CAST(o.sum AS REAL) = 0", []
+        titles = self.lk.classes_matching_group(ORDER_KINDS[kind])
+        if not titles:
+            return "0", []
+        return (f"o.id IN (SELECT g.contract_id FROM contract_goods g {PRODUCT_JOIN} WHERE COALESCE(p.class, '') IN ({','.join('?' * len(titles))}))", list(titles))
 
     def order_detail(self, oid: int) -> Optional[Dict[str, Any]]:
         r = self.one(self.ORDER_SELECT + " WHERE o.id = ?", [oid])

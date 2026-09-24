@@ -844,3 +844,38 @@ def test_display_city_for_province_administered_county_level(q):
     assert display_city("苏州市", "姑苏区", "江苏省苏州市") == "苏州市" and display_city("", "", "") == "" and display_city(None, None, None) == ""
     row = q().customer_row({"id": 1, "city": "自治区直辖县级行政区划(*)", "district": "石河子市", "address": ""})
     assert row["city"] == "石河子市"
+
+
+def test_orders_kind_buttons(tmp_path):
+    """订单页销售类型按钮：免费样品 = 金额为 0；填料 / 色谱柱 = 明细里有该大类产品；按钮上的单数按其他条件各算一次。"""
+    path = tmp_path / "kind.sqlite"
+    store = Store(path)
+    seed(store)
+    y = str(THIS_YEAR)
+    extra = [  # 一张 0 元样品单（送的是色谱柱），一张同时有填料和色谱柱的单
+        {"id": "97", "No.": f"mw{y}0801097", "subject": "免费样品", "cu_sn": "[id:1]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "0.00", "who": "王勇尊",
+         "date": f"{y}-08-01", "end_date": f"{y}-08-01", "money_type": "RMB", "goods": [{"id": "971", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": "0", "sum": "0.00"}]},
+        {"id": "98", "No.": f"mw{y}0802098", "subject": "填料+色谱柱", "cu_sn": "[id:2]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "1500.00", "who": "王勇尊",
+         "date": f"{y}-08-02", "end_date": f"{y}-08-02", "money_type": "RMB", "goods": [{"id": "981", "prod": "[id:2]", "prod_name": "无编号产品", "amount": "1.000", "un_price": "500", "sum": "500.00"},
+                                                                                       {"id": "982", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": "1000", "sum": "1000.00"}]},
+    ]
+    store.upsert_raw("contract", extra)
+    store.upsert_normalized(SPEC_BY_DT["contract"], extra)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    assert lk.classes_matching_group("色谱柱") == ["色谱柱"] and lk.classes_matching_group("色谱介质") == ["制备色谱填料"]
+    allq = query().orders()
+    assert allq["kind"] == "" and allq["kinds"] == {"sample": 1, "media": 2, "column": 4}   # 色谱柱：10、11、97、98；填料：12、98
+    sample = query(kind="sample").orders()
+    assert sample["kind"] == "sample" and [o["id"] for o in sample["rows"]] == [97] and sample["amount"] == 0.0
+    assert sorted(o["id"] for o in query(kind="media").orders()["rows"]) == [12, 98]
+    assert sorted(o["id"] for o in query(kind="column").orders()["rows"]) == [10, 11, 97, 98]
+    # 按钮上的单数只跟其他条件走，不受当前按钮影响；导出跟随按钮
+    who = query(kind="media", who="王勇尊").orders()          # 12 是李勇刚的单，王勇尊名下的填料单只有 98
+    assert who["kinds"] == {"sample": 1, "media": 1, "column": 4} and who["total"] == 1 and who["rows"][0]["id"] == 98
+    assert query(kind="bogus").orders()["kind"] == "" and query(kind="bogus").orders()["total"] == allq["total"]
+    assert build_export(query(kind="sample"), "orders").filename.endswith(".xlsx")

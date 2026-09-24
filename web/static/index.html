@@ -155,6 +155,13 @@ details.dup > summary:hover { color: var(--accent); }
 .btn:hover { background: var(--surface-2); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.link { border: none; background: none; color: var(--accent); padding: 4px 6px; }
+/* 订单页“销售类型”分段按钮：免费样品 / 填料 / 色谱柱，再点一次取消 */
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 7px; overflow: hidden; vertical-align: middle; }
+.seg-btn { background: var(--surface); border: none; border-right: 1px solid var(--border-strong); padding: 6px 12px; cursor: pointer; font: inherit; color: inherit; white-space: nowrap; }
+.seg-btn:last-child { border-right: none; }
+.seg-btn:hover { background: var(--surface-2); }
+.seg-btn.on { background: var(--accent); color: #fff; }
+.seg-btn .cnt { margin-left: 4px; font-size: 11px; opacity: .7; font-variant-numeric: tabular-nums; }
 .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
 .tabs a { padding: 8px 14px; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
 .tabs a.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -727,7 +734,8 @@ function topRows(list, nameFn, subFn) {
 // ------------------------------------------------------------------ 页面：订单
 const termLine = (o) => { const parts = [['发票', o.invoice_type], ['付款', o.pay_terms], ['货期', o.lead_time], ['试用', o.trial === '' ? '' : o.trial], ['首单', o.first_sign]].filter(([, v]) => v); return parts.length ? `<div class="muted small">${parts.map(([k, v]) => `${k} ${esc(v)}`).join(' · ')}</div>` : ''; };
 async function pageOrders(view, params) {
-  const f = { q: '', from: '', to: '', status: '', who: '', st_send: '', sort: '', page: 1, j7: '', j8: '', j9: '', prod: '', class: '', group: '', month: '', state: '', type: '', ...params };
+  const f = { q: '', from: '', to: '', status: '', who: '', st_send: '', sort: '', page: 1, j7: '', j8: '', j9: '', kind: '', prod: '', class: '', group: '', month: '', state: '', type: '', ...params };
+  const KINDS = [['sample', '免费样品', '金额为 0 的订单'], ['media', '填料', '订单里有色谱介质类产品'], ['column', '色谱柱', '订单里有色谱柱类产品']];
   const terms = (META.order_terms || []).filter((t) => t.has_dict && ['j7', 'j8', 'j9'].includes(t.key));
   const hidden = ['prod', 'class', 'group', 'month', 'state', 'type', 'owner'].filter((k) => f[k]);
   view.innerHTML = `<h1>订单查询</h1>
@@ -738,6 +746,8 @@ async function pageOrders(view, params) {
       <select name="who">${userOptions(f.who, '全部业务员')}</select>
       <select name="st_send">${dictOptions('contract.st_send', f.st_send, '发货状态')}</select>
       ${terms.map((t) => `<select name="${t.key}">${dictOptions('contract.' + t.key, f[t.key], t.name.replace(/^[一二三四五六七八九十]+、/, ''))}</select>`).join('')}
+      <span class="seg" id="kindSeg">${KINDS.map(([k, label, tip]) => `<button type="button" class="seg-btn${f.kind === k ? ' on' : ''}" data-kind="${k}" title="${tip}；再点一次取消">${label}<span class="cnt" data-cnt="${k}"></span></button>`).join('')}</span>
+      <input type="hidden" name="kind" value="${esc(f.kind)}">
       <select name="sort"><option value="">按日期（新→旧）</option><option value="date_asc" ${f.sort === 'date_asc' ? 'selected' : ''}>按日期（旧→新）</option><option value="amount" ${f.sort === 'amount' ? 'selected' : ''}>按金额</option></select>
       ${hidden.map((k) => `<input type="hidden" name="${k}" value="${esc(f[k])}">`).join('')}
       <button class="btn primary" id="go">查询</button>
@@ -753,7 +763,9 @@ async function pageOrders(view, params) {
     list.classList.add('loading');
     try {
       const res = await api('/api/orders', { ...q, size: 50 });
-      list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 单，金额合计 <b>${fmtMoney(res.amount)}</b>（不含意外中止）</p>
+      view.querySelectorAll('#kindSeg [data-cnt]').forEach((el) => { el.textContent = res.kinds ? fmtInt(res.kinds[el.dataset.cnt]) : ''; });
+      const kindLabel = (KINDS.find(([k]) => k === res.kind) || [])[1];
+      list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 单，金额合计 <b>${fmtMoney(res.amount)}</b>（不含意外中止）${kindLabel ? ` · 销售类型：<b>${kindLabel}</b>` : ''}</p>
         <table><thead><tr><th>日期</th><th>单号</th><th>客户</th><th>主题</th><th class="num">金额</th><th class="num">已回款</th><th>状态</th><th>发货</th><th>业务员</th></tr></thead><tbody>
         ${res.rows.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="lead">${custLink(o.customer)}</td><td><div class="ellipsis" title="${esc(o.subject)}">${esc(o.subject)}</div>${termLine(o)}</td>
           <td class="num">${fmtMoney(o.amount)}${o.money_type !== 'RMB' ? ` <span class="muted small">${esc(o.money_type)}</span>` : ''}</td><td class="num">${o.received ? fmtMoney(o.received) : '<span class="muted">—</span>'}</td>
@@ -768,6 +780,13 @@ async function pageOrders(view, params) {
   wireFilters(view, load);
   bindExport(view, () => readFilters($('#filters')));
   view.querySelectorAll('a[data-clear]').forEach((a) => a.addEventListener('click', () => { const el = view.querySelector(`input[name=${a.dataset.clear}]`); if (el) el.value = ''; a.parentElement.remove(); load(1); }));
+  $('#reset').addEventListener('click', () => view.querySelectorAll('#kindSeg .seg-btn').forEach((x) => x.classList.remove('on')));
+  view.querySelectorAll('#kindSeg .seg-btn').forEach((b) => b.addEventListener('click', () => {   // 单选，再点一次取消
+    const input = view.querySelector('input[name=kind]');
+    input.value = input.value === b.dataset.kind ? '' : b.dataset.kind;
+    view.querySelectorAll('#kindSeg .seg-btn').forEach((x) => x.classList.toggle('on', x.dataset.kind === input.value));
+    load(1);
+  }));
   load(Number(f.page) || 1);
 }
 
