@@ -438,6 +438,12 @@ async function api(path, params) {
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 }
+async function apiPost(path, body) {
+  const r = await fetch(new URL(path, location.origin), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
 function statusTag(o) {
   const cls = o.status === '1' ? 'open' : o.status === '2' ? 'done' : o.status === '3' ? 'bad' : '';
   return `<span class="tag ${cls}">${esc(o.status_text || o.status || '')}</span>`;
@@ -1771,6 +1777,8 @@ async function openCustomer(id) {
     const yearsMax = Math.max(1, ...d.yearly.map((y) => y.amount));
     const html = `
       <div class="kv">
+        ${c.severe ? `<div style="grid-column:1/-1"><label>逾期标记</label><span>${severeTag(c)} 最久逾期 ${c.severe.days} 天 · 逾期超 90 天的 ${c.severe.count} 期共 ${fmtMoney(c.severe.amount)} · <a data-exempt="on" title="解除后全系统都不再显示这家的“严重逾期”标签，记在本机 data/severe_exempt.json">解除标记</a></span></div>`
+          : c.severe_exempt ? `<div style="grid-column:1/-1"><label>逾期标记</label><span><span class="tag">严重逾期标记已解除</span> <span class="muted small">${esc(c.severe_exempt.since)}${c.severe_exempt.note ? ' · ' + esc(c.severe_exempt.note) : ''}${c.severe_raw ? ` · 本应标记：最久逾期 ${c.severe_raw.days} 天 · ${c.severe_raw.count} 期共 ${fmtMoney(c.severe_raw.amount)}` : ' · 当前已没有逾期超 90 天的计划'}</span> · <a data-exempt="off">恢复标记</a></span></div>` : ''}
         <div><label>所有者</label><span>${esc(c.owner)}</span></div>
         <div><label>周期</label><span>${esc(c.life_text)} · ${esc(c.type_text)}</span></div>
         <div><label>阶段</label><span>${esc(c.stage_text)}</span></div>
@@ -1801,6 +1809,15 @@ async function openCustomer(id) {
     stack[stack.length - 1].html = html;
     $('#drawerTitle').innerHTML = esc(c.name) + severeTag(c);
     $('#drawerBody').innerHTML = html;
+    $('#drawerBody').querySelectorAll('a[data-exempt]').forEach((a) => a.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const on = a.dataset.exempt === 'on';
+      const note = on ? prompt(`解除「${c.name}」的严重逾期标记，备注（可留空）：`, '') : null;
+      if (on && note === null) return;
+      if (!on && !confirm(`恢复「${c.name}」的严重逾期标记？`)) return;
+      try { await apiPost('/api/severe_exempt', { id: c.id, on, note: note || '' }); stack.pop(); openCustomer(c.id); }   // 原地重开这一层抽屉
+      catch (err) { alert('操作失败：' + err.message); }
+    }));
     $('#drawerBody').querySelectorAll('tr[data-order]').forEach((tr) => tr.addEventListener('click', () => openOrder(Number(tr.dataset.order))));
     bindLinks($('#drawerBody'));
   } catch (e) { $('#drawerBody').innerHTML = `<div class="error">${esc(e.message)}</div>`; }

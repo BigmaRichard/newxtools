@@ -43,6 +43,7 @@ from sync.specs import CONTRACT_CUSTOM_FIELDS
 from sync.store import col_name
 from web.auth import AccessControl
 from web.export import EXPORT_MAX, Download, build_export
+from web.local import SevereExempt
 from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries, _num, display_city
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -164,7 +165,8 @@ def _valid_date(value: Any) -> bool:
 class Lookups:
     """内存中的小表：人员、字典、客户对照、产品、字段中文名。"""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, exempt: Optional[SevereExempt] = None):
+        self.exempt = exempt or SevereExempt(Path(conn.execute("PRAGMA database_list").fetchone()[2] or "").parent / "severe_exempt.json")
         self.users: Dict[str, Dict[str, Any]] = {}
         for r in conn.execute("SELECT part, name, status, dept FROM crm_user WHERE _deleted_at IS NULL ORDER BY id"):
             self.users[r["part"]] = {"part": r["part"], "name": r["name"] or r["part"], "active": str(r["status"]) == "0", "dept": r["dept"]}
@@ -368,7 +370,14 @@ class Lookups:
         return self.key_to_id.get(key)
 
     def severe(self, cid: Any, today: Optional[dt.date] = None) -> Optional[Dict[str, Any]]:
-        """客户是否“严重逾期”：名下有逾期超过 SEVERE_DAYS 天的未回款计划。返回 {days 最久逾期天数, amount 这些期的金额, count 期数, since 最早计划日期}，否则 None。"""
+        """客户是否“严重逾期”：名下有逾期超过 SEVERE_DAYS 天的未回款计划，且没有被手工解除。
+        返回 {days 最久逾期天数, amount 这些期的金额, count 期数, since 最早计划日期}，否则 None。"""
+        if self.exempt.get(cid):   # 手工解除过的客户不标
+            return None
+        return self.severe_raw(cid, today)
+
+    def severe_raw(self, cid: Any, today: Optional[dt.date] = None) -> Optional[Dict[str, Any]]:
+        """不看解除名单的原始判断。"""
         plans = self.open_plans.get(_int(cid, 0)) if cid is not None else None
         if not plans:
             return None
@@ -431,8 +440,12 @@ class Lookups:
         c = self.customers.get(cid)
         if not c:
             return {"id": cid, "name": f"[已删除 {cid}]", "owner": None}
-        return {"id": cid, "name": c["cu_name"] or c["m_name"] or f"[id:{cid}]", "owner": self.user_name(c["owner"]), "life": self.text("customer", "life", c["life"]),
-                "severe": self.severe(cid)}
+        out = {"id": cid, "name": c["cu_name"] or c["m_name"] or f"[id:{cid}]", "owner": self.user_name(c["owner"]), "life": self.text("customer", "life", c["life"]),
+               "severe": self.severe(cid)}
+        ex = self.exempt.get(cid)
+        if ex:
+            out["severe_exempt"] = ex
+        return out
 
     def user_name(self, part: Any) -> str:
         if part is None:
@@ -468,6 +481,7 @@ class Lookups:
 class Mirror:
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self.exempt = SevereExempt(self.path.parent / "severe_exempt.json")   # 严重逾期标记的手工解除名单（本地文件，热加载）
         self._lock = threading.Lock()
         self._lookups: Optional[Lookups] = None
         self._stamp: Any = None
@@ -491,7 +505,7 @@ class Mirror:
                 stamp = self.stamp(conn)
                 if self._lookups is None or stamp != self._stamp:
                     t0 = time.time()
-                    self._lookups = Lookups(conn)
+                    self._lookups = Lookups(conn, self.exempt)
                     self._stamp = stamp
                     logger.info("已加载对照表：客户 %d、人员 %d、产品 %d（%.2fs）", len(self._lookups.customers), len(self._lookups.users),
                                 len(self._lookups.products), time.time() - t0)
@@ -843,6 +857,7 @@ class Query(ReportQueries):
         return {
             "id": c["id"], "sn": c.get("sn"), "name": c.get("cu_name") or c.get("m_name"), "short": c.get("m_name"),
             "owner": self.lk.user_name(c.get("owner")), "owner_part": c.get("owner"), "severe": self.lk.severe(c["id"], self.today),
+            "severe_exempt": self.lk.exempt.get(c["id"]), "severe_raw": self.lk.severe_raw(c["id"], self.today),
             "life_text": self.lk.text("customer", "life", c.get("life")), "type_text": self.lk.text("customer", "type", c.get("type")),
             "stage_text": self.lk.text("customer", "cu_status", c.get("cu_status")), "industry_text": self.lk.text("customer", "industry", c.get("industry")),
             "city": display_city(c.get("city"), c.get("district"), c.get("address")), "created": c.get("creatdate"), "modified": c.get("moddate"), "tel": c.get("tel"), "address": c.get("address"),
@@ -1251,6 +1266,7 @@ ROUTES: List[Tuple[re.Pattern, Callable[[Query, re.Match], Any]]] = [
     (re.compile(r"^/api/customers$"), lambda q, m: q.customers()),
     (re.compile(r"^/api/customers/(\d+)$"), lambda q, m: q.customer_detail(int(m.group(1)))),
     (re.compile(r"^/api/receivables$"), lambda q, m: q.receivables()),
+    (re.compile(r"^/api/severe_exempt$"), lambda q, m: {"rows": q.lk.exempt.all()}),
     (re.compile(r"^/api/receipts$"), lambda q, m: q.receipts()),
     (re.compile(r"^/api/actions$"), lambda q, m: q.actions()),
     (re.compile(r"^/api/sales$"), lambda q, m: q.sales()),
@@ -1283,6 +1299,35 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: Any) -> None:  # 访问日志降级为 debug
         logger.debug("%s " + fmt, self.address_string(), *args)
+
+    def do_POST(self) -> None:  # noqa: N802
+        """唯一的写接口：严重逾期标记的手工解除 / 恢复（写本地 data/severe_exempt.json，不动镜像库）。"""
+        denial = self.access.check(self.client_address[0], self.headers.get("Authorization"))
+        if denial:
+            return self.send_denied(*denial)
+        if urlparse(self.path).path != "/api/severe_exempt":
+            return self.send_json({"error": "not found"}, 404)
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            cid = int(body.get("id"))
+        except (ValueError, TypeError):
+            return self.send_json({"error": "缺少客户 id"}, 400)
+        conn = self.mirror.connect()
+        try:
+            lk = self.mirror.lookups(conn)
+            c = lk.customers.get(cid)
+            if not c:
+                return self.send_json({"error": f"没有 id 为 {cid} 的客户"}, 404)
+            name = c.get("cu_name") or c.get("m_name") or ""
+            if body.get("on", True):
+                entry = self.mirror.exempt.add(cid, name, str(body.get("note") or "")[:200])
+                logger.info("解除严重逾期标记：%s（%s）%s", name, cid, entry["note"])
+                return self.send_json({"ok": True, "exempt": entry})
+            gone = self.mirror.exempt.remove(cid)
+            logger.info("恢复严重逾期标记：%s（%s）", name, cid)
+            return self.send_json({"ok": True, "removed": gone})
+        finally:
+            conn.close()
 
     def do_GET(self) -> None:  # noqa: N802
         denial = self.access.check(self.client_address[0], self.headers.get("Authorization"))

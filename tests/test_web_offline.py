@@ -898,3 +898,61 @@ def test_orders_kind_buttons(tmp_path):
     assert cm["total"] == 1 and cm["rows"][0]["id"] == 98 and cm["kinds"] == {"sample": 0, "media": 1, "column": 1, "daiso": 0}
     assert query(kind="daiso,bogus,daiso").orders()["kind"] == "daiso"
     assert build_export(query(kind="sample"), "orders").filename.endswith(".xlsx")
+
+
+def test_severe_exempt_list_and_endpoint(tmp_path):
+    """严重逾期标记的手工解除：名单文件热加载、CLI 与 POST 接口写入后全系统不再标，恢复后又标。"""
+    import json as _json
+    import datetime as _dt
+    path = tmp_path / "exempt.sqlite"
+    store = Store(path)
+    seed(store)
+    old = [{"id": "9", "date": f"{THIS_YEAR - 1}-01-01", "serial": "2", "money": "300.00", "status": "2", "who": "M9", "cu_sn": "[id:1]", "co_sn": f"mw{THIS_YEAR}0301011", "memo": "老欠款"}]
+    store.upsert_raw("gathering", old)
+    store.upsert_normalized(SPEC_BY_DT["gathering"], old)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+    assert lk.customer("[id:1]")["severe"] and "severe_exempt" not in lk.customer("[id:1]")
+
+    # 直接写名单文件（CLI 的做法）→ 立即生效，不用重建对照表
+    entry = mirror.exempt.add(1, "上海测试客户", "已协商分期")
+    assert (tmp_path / "severe_exempt.json").exists() and entry["since"] == _dt.date.today().isoformat()
+    c = lk.customer("[id:1]")
+    assert c["severe"] is None and c["severe_exempt"]["note"] == "已协商分期"
+    row = {r["id"]: r for r in query().customers()["rows"]}[1]
+    assert row["severe"] is None and row["severe_exempt"]["id"] == 1 and row["severe_raw"]["count"] >= 1    # 详情里仍能看到“本应标记”
+    assert query().order_detail(11)["order"]["customer"]["severe"] is None
+    assert lk.severe_raw(1)["count"] >= 1
+    # 手工改文件（比如在另一台机器上编辑后同步过来）也会被热加载
+    (tmp_path / "severe_exempt.json").write_text(_json.dumps([]), encoding="utf-8")
+    mirror.exempt.refresh(force=True)
+    assert lk.customer("[id:1]")["severe"] and mirror.exempt.all() == []
+
+    # POST 接口：解除 → 恢复
+    srv = make_server(str(path), "127.0.0.1", 0)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        def post(body):
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/api/severe_exempt", data=_json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req) as r:
+                return _json.loads(r.read())
+        assert post({"id": 1, "on": True, "note": "接口解除"})["exempt"]["note"] == "接口解除"
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/severe_exempt") as r:
+            assert [e["id"] for e in _json.loads(r.read())["rows"]] == [1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/customers/1") as r:
+            d = _json.loads(r.read())["customer"]
+            assert d["severe"] is None and d["severe_exempt"]["note"] == "接口解除"
+        assert post({"id": 1, "on": False})["removed"] is True
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/customers/1") as r:
+            assert _json.loads(r.read())["customer"]["severe"]["count"] >= 1
+        try:
+            post({"id": 999999, "on": True})
+            raise AssertionError("不存在的客户应报 404")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404
+    finally:
+        srv.shutdown()
