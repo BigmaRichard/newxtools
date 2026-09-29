@@ -616,7 +616,7 @@ class ReportQueries:
 
     def products(self) -> Dict[str, Any]:
         start, window = self._product_window()
-        by_model = self.get("view") == "model"
+        by_model = (self.get("view") or "model") == "model"   # 0.6.4 起默认按型号合计（Richard：销量以产品名称为准，型号下再看货号）
         clauses, args = self._product_where()
         stock = self.get("stock")
         if by_model:
@@ -654,12 +654,20 @@ class ReportQueries:
             acc["classes"] += 1
         page, size, offset = self.page()
         rows = self.rows(f"SELECT * FROM ({inner}) ORDER BY {self._order_by(by_model)} LIMIT ? OFFSET ?", [*params, size, offset])
+        out_rows = [self.model_row(r) if by_model else self.product_row(r) for r in rows]
+        if by_model and out_rows:   # 每个型号下有几个货号（生产批号）：本页的型号一次查出各记录编号，按货号去重
+            names = [r["model_name"] for r in out_rows]
+            groups: Dict[str, set] = {}
+            for x in self.rows(f"SELECT name, id, sn FROM product WHERE _deleted_at IS NULL AND name IN ({','.join('?' * len(names))})", names):
+                groups.setdefault(x["name"], set()).add(batch_of(x["sn"]) or f"#{x['id']}")
+            for r in out_rows:
+                r["groups"] = len(groups.get(r["model_name"], ()))
         return {"total": summary.get("total") or 0, "page": page, "size": size, "window": window, "window_start": start,
                 "view": "model" if by_model else "batch", "sort": self.get("sort") or "amount", "dir": self.get("dir") or "desc",
                 "summary": {"with_stock": summary.get("with_stock") or 0, "low": summary.get("low") or 0, "unsold": summary.get("unsold") or 0,
                             "sold": summary.get("sold") or 0, "amount": money(summary.get("amount")), "qty": round(_num(summary.get("qty")), 3)},
                 "by_group": sorted(by_class.values(), key=lambda a: -a["amount"]),
-                "rows": [self.model_row(r) if by_model else self.product_row(r) for r in rows]}
+                "rows": out_rows}
 
     def _product_match(self, model: str, prod: Optional[Dict[str, Any]]) -> Tuple[str, List[Any]]:
         """订单 / 采购明细里引用这个产品（或这个型号的全部批号）的条件：编号 sn，或没有编号时的 "[id:N]"。"""

@@ -386,16 +386,17 @@ def test_salesperson_dashboard(q):
 
 
 def test_products_list_summary_and_detail(q):
-    res = q(months="0").products()
+    assert q(months="0").products()["view"] == "model"          # 0.6.4 起不带 view 参数默认按型号合计
+    res = q(view="batch", months="0").products()
     assert res["total"] == 3 and res["window"] == "全部"
     rows = {r["sn"]: r for r in res["rows"]}
     assert rows["08086-31"]["sales_amount"] == 3000.0 and rows["08086-31"]["sales_qty"] == 3.0 and rows["08086-31"]["stock_low"] is True and rows["08086-31"]["group"] == "1.色谱柱"
     assert rows[""]["id"] == 2 and rows[""]["sales_amount"] == 500.0  # 无编号产品按 [id:2] 关联到销售
     assert res["summary"]["low"] == 1 and res["summary"]["unsold"] == 1 and res["summary"]["sold"] == 2
     assert [g["group"] for g in res["by_group"]][0] == "1.色谱柱"
-    assert q(months="0", stock="unsold").products()["rows"][0]["sn"] == "SLOW-1"
-    assert q(months="0", group="2.色谱介质").products()["total"] == 1
-    assert q(months="0", q="πNAP").products()["total"] == 1
+    assert q(view="batch", months="0", stock="unsold").products()["rows"][0]["sn"] == "SLOW-1"
+    assert q(view="batch", months="0", group="2.色谱介质").products()["total"] == 1
+    assert q(view="batch", months="0", q="πNAP").products()["total"] == 1
     d = q(id="2", months="0").product_detail()
     assert d["product"]["name"].startswith("无编号") and d["yearly"][0]["amount"] == 500.0 and d["lines"][0]["order_no"].endswith("012")
     assert d["purchases"][0]["no"].endswith("001") and d["purchases"][0]["money_type"] == "JPY"
@@ -502,9 +503,9 @@ def test_products_group_by_model_and_sorting(q):
     asc = [r["model_name"] for r in q(view="model", months="0", sort="stock", dir="asc").products()["rows"]]
     desc = [r["model_name"] for r in q(view="model", months="0", sort="stock", dir="desc").products()["rows"]]
     assert asc == desc[::-1] and desc[0] == "滞销品"                    # 库存 9 > 5 > 0
-    assert [r["sn"] for r in q(months="0", sort="stock", dir="desc").products()["rows"]][:2] == ["SLOW-1", "08086-31"]
-    assert [r["sn"] for r in q(months="0", sort="customers", dir="desc").products()["rows"]][0] == "08086-31"
-    assert [r["sn"] for r in q(months="0", sort="sn", dir="asc").products()["rows"]][0] == ""      # 无编号排最前
+    assert [r["sn"] for r in q(view="batch", months="0", sort="stock", dir="desc").products()["rows"]][:2] == ["SLOW-1", "08086-31"]
+    assert [r["sn"] for r in q(view="batch", months="0", sort="customers", dir="desc").products()["rows"]][0] == "08086-31"
+    assert [r["sn"] for r in q(view="batch", months="0", sort="sn", dir="asc").products()["rows"]][0] == ""      # 无编号排最前
     # 型号视图下的库存筛选按合计判断
     assert q(view="model", months="0", stock="in").products()["total"] == 2
     assert q(view="model", months="0", stock="unsold").products()["rows"][0]["model_name"] == "滞销品"
@@ -538,7 +539,7 @@ def test_model_view_unit_default_and_pack_spec(tmp_path):
     query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
 
     row = next(r for r in query(view="model", months="0").products()["rows"] if r["model_name"] == "SP-100-8-C4-NP")
-    assert row["batches"] == 3 and row["batches_in_stock"] == 2 and row["stock"] == 150.0
+    assert row["batches"] == 3 and row["batches_in_stock"] == 2 and row["stock"] == 150.0 and row["groups"] == 3   # 三条记录是三个货号
     assert row["units"] == 1 and row["unit"] == "公斤"        # 库存为 0 的“桶”不算，空单位按填料默认公斤
     d = query(model="SP-100-8-C4-NP", months="0").product_detail()
     packs = {b["sn"]: b["pack"] for b in d["batches"]}
@@ -721,6 +722,8 @@ def test_product_detail_merges_order_lines_by_order(tmp_path):
     lk = mirror.lookups(conn)
     query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
 
+    lst = next(r for r in query(view="model", months="0").products()["rows"] if r["model_name"] == "SP-100-8-C4-NP")
+    assert lst["batches"] == 4 and lst["groups"] == 3        # 四条记录（260114AB 两种包装、260227AB、无编号）是三个货号
     d = query(model="SP-100-8-C4-NP", months="0").product_detail()
     assert len(d["lines"]) == 4 and [o["order_id"] for o in d["orders"]] == [96, 95]   # 最新的单在前
     # 采购记录同样按采购单合并：3 行合成 1 单，两个批次，同批次的行相邻
