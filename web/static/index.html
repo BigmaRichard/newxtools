@@ -1257,6 +1257,7 @@ const sortOptions = (byModel) => [
   ['customers', '客户数', '多→少', '少→多'], ['last', '最近销售', '新→旧', '旧→新'],
 ];
 
+const PRODUCT_QUICK = [['制备色谱填料', '制备色谱填料'], ['COSMOSIL', 'COSMOSIL 色谱柱']];   // 产品页的快捷分类按钮：[产品表 class 值, 按钮文字]
 async function pageProducts(view, params) {
   const f = { q: '', group: '', class: '', status: '', stock: '', months: '12', view: 'model', sort: 'amount', dir: 'desc', page: 1, ...params };
   const classOptions = (group, current) => options((META.product_classes || []).filter((c) => !group || c.group === group), 'title', 'title', current, group ? '该大类全部分类' : '全部分类');
@@ -1266,6 +1267,7 @@ async function pageProducts(view, params) {
       <input type="text" name="q" placeholder="编号 / 名称 / 型号" value="${esc(f.q)}">
       <select name="group">${options((META.product_groups || []).map((g) => ({ k: g })), 'k', 'k', f.group, '全部大类')}</select>
       <select name="class" id="classSel">${classOptions(f.group, f.class)}</select>
+      <span class="seg" id="classSeg">${PRODUCT_QUICK.map(([cls, label]) => `<button type="button" class="seg-btn${f.class === cls ? ' on' : ''}" data-class="${esc(cls)}" title="只看分类「${esc(cls)}」的产品；再点一次取消">${label}</button>`).join('')}</span>
       <select name="status">${options((META.product_statuses || []).map((s) => ({ k: s })), 'k', 'k', f.status, '全部状态')}</select>
       <select name="stock"><option value="">库存不限</option><option value="in" ${f.stock === 'in' ? 'selected' : ''}>有库存</option><option value="out" ${f.stock === 'out' ? 'selected' : ''}>无库存</option><option value="low" ${f.stock === 'low' ? 'selected' : ''}>低于下限</option><option value="unsold" ${f.stock === 'unsold' ? 'selected' : ''}>滞销（有库存、窗口内无销售）</option><option value="sold" ${f.stock === 'sold' ? 'selected' : ''}>窗口内有销售</option></select>
       <select name="months"><option value="12" ${f.months === '12' ? 'selected' : ''}>近 12 个月</option><option value="24" ${f.months === '24' ? 'selected' : ''}>近 24 个月</option><option value="36" ${f.months === '36' ? 'selected' : ''}>近 36 个月</option><option value="0" ${f.months === '0' ? 'selected' : ''}>全部年份</option></select>
@@ -1276,7 +1278,18 @@ async function pageProducts(view, params) {
     <div class="grid kpis dense" id="kpis"></div>
     <div class="card"><div id="list"><div class="empty">加载中…</div></div></div>
     <div class="card" id="byGroup" style="margin-top:14px"></div>`;
-  $('[name=group]').addEventListener('change', (e) => { $('#classSel').innerHTML = classOptions(e.target.value, ''); });
+  $('[name=group]').addEventListener('change', (e) => { $('#classSel').innerHTML = classOptions(e.target.value, ''); syncQuick(); });
+  const syncQuick = () => view.querySelectorAll('#classSeg .seg-btn').forEach((b) => b.classList.toggle('on', $('#classSel').value === b.dataset.class));
+  $('#classSel').addEventListener('change', syncQuick);
+  $('#reset').addEventListener('click', syncQuick);
+  view.querySelectorAll('#classSeg .seg-btn').forEach((b) => b.addEventListener('click', () => {   // 快捷分类按钮：选中该分类（连带它的大类），再点一次取消
+    const cls = $('#classSel').value === b.dataset.class ? '' : b.dataset.class;
+    const group = cls ? ((META.product_classes || []).find((c) => c.title === cls) || {}).group || '' : '';
+    $('[name=group]').value = group;
+    $('#classSel').innerHTML = classOptions(group, cls);
+    syncQuick();
+    load(1);
+  }));
   const setSort = (key) => {                                     // 点表头：同一列切升降序，换列从大到小
     const cur = $('[name=sort]').value, dir = $('[name=dir]').value;
     $('[name=sort]').value = key;
