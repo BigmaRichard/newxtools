@@ -959,3 +959,41 @@ def test_severe_exempt_list_and_endpoint(tmp_path):
             assert exc.code == 404
     finally:
         srv.shutdown()
+
+
+def test_receivables_aging_buttons(tmp_path):
+    """应收账龄档按钮：aging=d30 / d90 / d365 / d365p 可多选取并集；账龄汇总卡与按钮上的期数不受它影响。"""
+    import datetime as _dt
+    path = tmp_path / "aging.sqlite"
+    store = Store(path)
+    seed(store)
+    d = lambda n: (TODAY - _dt.timedelta(days=n)).isoformat()  # noqa: E731
+    plans = [
+        {"id": "21", "date": d(10), "serial": "1", "money": "100.00", "status": "2", "who": "M9", "cu_sn": "[id:1]", "co_sn": "a", "memo": ""},
+        {"id": "22", "date": d(45), "serial": "1", "money": "200.00", "status": "2", "who": "M9", "cu_sn": "[id:1]", "co_sn": "b", "memo": ""},
+        {"id": "23", "date": d(200), "serial": "1", "money": "300.00", "status": "4", "who": "M23", "cu_sn": "[id:2]", "co_sn": "c", "memo": ""},
+        {"id": "24", "date": d(400), "serial": "1", "money": "400.00", "status": "2", "who": "M23", "cu_sn": "[id:2]", "co_sn": "d", "memo": ""},
+        {"id": "25", "date": d(500), "serial": "1", "money": "999.00", "status": "1", "who": "M23", "cu_sn": "[id:2]", "co_sn": "e", "memo": "已回的不算"},
+    ]
+    store.upsert_raw("gathering", plans)
+    store.upsert_normalized(SPEC_BY_DT["gathering"], plans)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    base = query(status="overdue", from_="2000-01-01").receivables()
+    c = base["aging_counts"]
+    assert c["d30"] >= 1 and c["d90"] >= 1 and c["d365"] >= 1 and c["d365p"] >= 1 and base["aging_selected"] == []
+    one = query(status="overdue", from_="2000-01-01", aging="d365p").receivables()
+    assert [r["id"] for r in one["rows"]] == [24] and one["amount"] == 400.0 and one["aging_selected"] == ["d365p"]
+    assert one["aging_counts"] == c and one["aging"] == base["aging"]           # 汇总卡与期数不随按钮变
+    two = query(status="overdue", from_="2000-01-01", aging="d30,d365p").receivables()
+    assert sorted(r["id"] for r in two["rows"]) == sorted([21, 24] + [r["id"] for r in base["rows"] if 0 < r["overdue_days"] <= 30 and r["id"] not in (21,)])
+    assert query(status="overdue", from_="2000-01-01", aging="d90").receivables()["rows"][0]["id"] == 22
+    assert query(status="overdue", from_="2000-01-01", aging="bogus").receivables()["total"] == base["total"]
+    # 按业务员汇总跟着账龄档走（不受业务员筛选影响的规则不变）
+    who = query(status="overdue", from_="2000-01-01", aging="d365", who="M23").receivables()
+    assert who["total"] == 1 and who["rows"][0]["id"] == 23 and "M23" in [w["part"] for w in who["by_who"]]
+    assert all(w["aging"]["d365"] > 0 and w["aging"]["d30"] == 0 for w in who["by_who"])      # 汇总表里只剩这一档的钱

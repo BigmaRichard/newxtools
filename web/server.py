@@ -964,6 +964,14 @@ class Query(ReportQueries):
         if q:
             args.append(f"%{q}%")
             clauses.append(f"(g.co_sn LIKE ? OR {self.name_search_clause('g', q, args)})")
+        today = self.today.isoformat()
+        # 账龄档按钮（Richard）：aging=d30,d90,d365,d365p 的子集，选几档就只看这几档（并集）；账龄汇总卡不受它影响，按钮上才能一直看到各档的期数与金额
+        where_pre, pre_args = " WHERE " + " AND ".join(clauses), list(args)
+        buckets = [b for b in dict.fromkeys((self.get("aging") or "").split(",")) if b in self.AGING_CLAUSES]
+        if buckets:
+            clauses.append("g.status IN ('2','4') AND (" + " OR ".join(self.AGING_CLAUSES[b][0] for b in buckets) + ")")
+            for b in buckets:
+                args.extend([today] * self.AGING_CLAUSES[b][1])
         # 业务员条件放最后：按业务员汇总表不受它影响，这样选了某人之后还能直接切到别人
         where_all, base_args = " WHERE " + " AND ".join(clauses), list(args)
         if self.get("who"):
@@ -972,16 +980,21 @@ class Query(ReportQueries):
         where = " WHERE " + " AND ".join(clauses)
         page, size, offset = self.page()
         total = self.one(f"SELECT COUNT(*) n, SUM(CAST(g.money AS REAL)) a FROM gathering g{where}", args) or {}
-        today = self.today.isoformat()
+        aging_where, aging_args = (where_pre + (" AND g.who = ?" if self.get("who") else ""), pre_args + ([self.get("who")] if self.get("who") else []))
         aging = self.one(
             "SELECT "
             "SUM(CASE WHEN g.date >= ? THEN CAST(g.money AS REAL) ELSE 0 END) AS not_due, "
             "SUM(CASE WHEN g.date < ? AND julianday(?) - julianday(g.date) <= 30 THEN CAST(g.money AS REAL) ELSE 0 END) AS d30, "
             "SUM(CASE WHEN julianday(?) - julianday(g.date) > 30 AND julianday(?) - julianday(g.date) <= 90 THEN CAST(g.money AS REAL) ELSE 0 END) AS d90, "
             "SUM(CASE WHEN julianday(?) - julianday(g.date) > 90 AND julianday(?) - julianday(g.date) <= 365 THEN CAST(g.money AS REAL) ELSE 0 END) AS d365, "
-            "SUM(CASE WHEN julianday(?) - julianday(g.date) > 365 THEN CAST(g.money AS REAL) ELSE 0 END) AS d365p "
-            f"FROM gathering g{where} AND g.status IN ('2','4')",
-            [today] * 8 + list(args),
+            "SUM(CASE WHEN julianday(?) - julianday(g.date) > 365 THEN CAST(g.money AS REAL) ELSE 0 END) AS d365p, "
+            "SUM(CASE WHEN g.date >= ? THEN 1 ELSE 0 END) AS n_not_due, "
+            "SUM(CASE WHEN g.date < ? AND julianday(?) - julianday(g.date) <= 30 THEN 1 ELSE 0 END) AS n_d30, "
+            "SUM(CASE WHEN julianday(?) - julianday(g.date) > 30 AND julianday(?) - julianday(g.date) <= 90 THEN 1 ELSE 0 END) AS n_d90, "
+            "SUM(CASE WHEN julianday(?) - julianday(g.date) > 90 AND julianday(?) - julianday(g.date) <= 365 THEN 1 ELSE 0 END) AS n_d365, "
+            "SUM(CASE WHEN julianday(?) - julianday(g.date) > 365 THEN 1 ELSE 0 END) AS n_d365p "
+            f"FROM gathering g{aging_where} AND g.status IN ('2','4')",
+            [today] * 16 + list(aging_args),
         ) or {}
         by_who = [
             {"who": self.lk.user_name(r["who"]), "part": r["who"], "count": r["n"], "amount": money(r["a"]),
@@ -1001,7 +1014,17 @@ class Query(ReportQueries):
         key, direction = self.plan_sort()
         rows = self.rows(f"SELECT g.* FROM gathering g{where} ORDER BY {self.PLAN_SORTS[key]} {direction}, g.id LIMIT ? OFFSET ?", [*args, size, offset])
         return {"total": total.get("n") or 0, "amount": money(total.get("a")), "page": page, "size": size, "sort": key, "dir": direction.lower(),
-                "aging": {k: money(aging.get(k)) for k in ("not_due", "d30", "d90", "d365", "d365p")}, "by_who": by_who, "rows": [self.plan_row(g) for g in rows]}
+                "aging": {k: money(aging.get(k)) for k in ("not_due", "d30", "d90", "d365", "d365p")},
+                "aging_counts": {k: aging.get("n_" + k) or 0 for k in ("not_due", "d30", "d90", "d365", "d365p")}, "aging_selected": buckets,
+                "by_who": by_who, "rows": [self.plan_row(g) for g in rows]}
+
+    # 账龄四档的 SQL（每档需要几个 today 参数）：≤30 天要求已过计划日期；其余按天数区间
+    AGING_CLAUSES = {
+        "d30": ("(g.date < ? AND julianday(?) - julianday(g.date) <= 30)", 2),
+        "d90": ("(julianday(?) - julianday(g.date) > 30 AND julianday(?) - julianday(g.date) <= 90)", 2),
+        "d365": ("(julianday(?) - julianday(g.date) > 90 AND julianday(?) - julianday(g.date) <= 365)", 2),
+        "d365p": ("(julianday(?) - julianday(g.date) > 365)", 1),
+    }
 
     # 计划回款列表的排序：表头箭头传 sort + dir；"逾期" = 计划日期越早逾期越久，所以用 -julianday
     PLAN_SORTS = {"date": "g.date", "amount": "CAST(g.money AS REAL)", "serial": "CAST(g.serial AS REAL)",
