@@ -1268,6 +1268,7 @@ async function pageProducts(view, params) {
       <select name="group">${options((META.product_groups || []).map((g) => ({ k: g })), 'k', 'k', f.group, '全部大类')}</select>
       <select name="class" id="classSel">${classOptions(f.group, f.class)}</select>
       <span class="seg" id="classSeg">${PRODUCT_QUICK.map(([cls, label]) => `<button type="button" class="seg-btn${f.class === cls ? ' on' : ''}" data-class="${esc(cls)}" title="只看分类「${esc(cls)}」的产品；再点一次取消">${label}</button>`).join('')}</span>
+      <span class="seg" id="unsoldSeg"><button type="button" class="seg-btn${f.stock === 'unsold' ? ' on' : ''}" data-stock="unsold" title="只看滞销：有库存、销售窗口内无销售（等于库存下拉里的“滞销”）；可与分类按钮同时按下，再点一次取消">滞销<span class="cnt" id="unsoldCnt"></span></button></span>
       <select name="status">${options((META.product_statuses || []).map((s) => ({ k: s })), 'k', 'k', f.status, '全部状态')}</select>
       <select name="stock"><option value="">库存不限</option><option value="in" ${f.stock === 'in' ? 'selected' : ''}>有库存</option><option value="out" ${f.stock === 'out' ? 'selected' : ''}>无库存</option><option value="low" ${f.stock === 'low' ? 'selected' : ''}>低于下限</option><option value="unsold" ${f.stock === 'unsold' ? 'selected' : ''}>滞销（有库存、窗口内无销售）</option><option value="sold" ${f.stock === 'sold' ? 'selected' : ''}>窗口内有销售</option></select>
       <select name="months"><option value="12" ${f.months === '12' ? 'selected' : ''}>近 12 个月</option><option value="24" ${f.months === '24' ? 'selected' : ''}>近 24 个月</option><option value="36" ${f.months === '36' ? 'selected' : ''}>近 36 个月</option><option value="0" ${f.months === '0' ? 'selected' : ''}>全部年份</option></select>
@@ -1279,9 +1280,18 @@ async function pageProducts(view, params) {
     <div class="card"><div id="list"><div class="empty">加载中…</div></div></div>
     <div class="card" id="byGroup" style="margin-top:14px"></div>`;
   $('[name=group]').addEventListener('change', (e) => { $('#classSel').innerHTML = classOptions(e.target.value, ''); syncQuick(); });
-  const syncQuick = () => view.querySelectorAll('#classSeg .seg-btn').forEach((b) => b.classList.toggle('on', $('#classSel').value === b.dataset.class));
+  const syncQuick = () => {
+    view.querySelectorAll('#classSeg .seg-btn').forEach((b) => b.classList.toggle('on', $('#classSel').value === b.dataset.class));
+    view.querySelectorAll('#unsoldSeg .seg-btn').forEach((b) => b.classList.toggle('on', $('[name=stock]').value === b.dataset.stock));
+  };
   $('#classSel').addEventListener('change', syncQuick);
+  $('[name=stock]').addEventListener('change', syncQuick);
   $('#reset').addEventListener('click', syncQuick);
+  view.querySelectorAll('#unsoldSeg .seg-btn').forEach((b) => b.addEventListener('click', () => {   // 滞销按钮 = 库存下拉选“滞销”，再点一次取消
+    $('[name=stock]').value = $('[name=stock]').value === b.dataset.stock ? '' : b.dataset.stock;
+    syncQuick();
+    load(1);
+  }));
   view.querySelectorAll('#classSeg .seg-btn').forEach((b) => b.addEventListener('click', () => {   // 快捷分类按钮：选中该分类（连带它的大类），再点一次取消
     const cls = $('#classSel').value === b.dataset.class ? '' : b.dataset.class;
     const group = cls ? ((META.product_classes || []).find((c) => c.title === cls) || {}).group || '' : '';
@@ -1307,8 +1317,11 @@ async function pageProducts(view, params) {
       const unit = byModel ? '个型号' : '个产品';
       $('#kpis').innerHTML = kpiCard(`${byModel ? '型号' : '产品'}（按当前筛选）`, fmtInt(res.total), `有库存 ${fmtInt(s.with_stock)}`)
         + kpiCard('低于库存下限', fmtInt(s.low), byModel ? '至少一个批号低于下限' : '设了下限且库存低于下限')
-        + kpiCard('滞销', fmtInt(s.unsold), `有库存、${res.window}无销售`)
+        + kpiCard('滞销', fmtInt(s.unsold), `有库存、${res.window}无销售 · 点卡片只看滞销`)
         + kpiCard(`${res.window}销售额`, fmtWan(s.amount), `${fmtInt(s.sold)} ${unit}有销售 · 数量 ${fmtInt(s.qty)}`);
+      $('#unsoldCnt').textContent = fmtInt(s.unsold);
+      const unsoldCard = $('#kpis').children[2];
+      if (unsoldCard) { unsoldCard.style.cursor = 'pointer'; unsoldCard.title = '只看滞销 / 取消'; unsoldCard.addEventListener('click', () => $('#unsoldSeg .seg-btn').click()); }
       const gmax = Math.max(1, ...res.by_group.map((g) => g.amount));
       $('#byGroup').innerHTML = `<h2>按大类 <span class="count">${res.window}</span></h2><div class="group-grid">${res.by_group.map((g) => `<div class="group-cell"><a data-group="${esc(g.group)}">${esc(g.group)}</a><div class="muted small">${fmtInt(g.products)} ${unit} · 有库存 ${fmtInt(g.with_stock)}</div>${inlineBar(g.amount, gmax, fmtMoney(g.amount))}</div>`).join('') || '<div class="empty">无</div>'}</div><p class="note">分类树来自 CRM 产品类别；产品表里只存分类标题，按标题归到大类。</p>`;
       $('#byGroup').querySelectorAll('a[data-group]').forEach((a) => a.addEventListener('click', () => { $('[name=group]').value = a.dataset.group; $('#classSel').innerHTML = classOptions(a.dataset.group, ''); load(1); }));
