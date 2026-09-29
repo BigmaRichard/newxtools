@@ -1305,17 +1305,18 @@ async function pageProducts(view, params) {
       const arrow = (key) => res.sort === key ? `<span class="sort-arrow">${res.dir === 'asc' ? '▲' : '▼'}</span>` : '<span class="sort-arrow dim">↕</span>';
       const th = (key, label, cls) => `<th class="${cls ? cls + ' ' : ''}sortable" data-sort="${key}">${label}${arrow(key)}</th>`;
       const head = byModel
-        ? `<tr>${th('name', '型号', '')}${th('batches', '货号', 'num')}<th>分类</th>${th('price', '价格', 'num')}${th('stock', '库存合计', 'num')}${th('amount', res.window + '销售额', 'num')}${th('qty', '数量', 'num')}${th('orders', '单数', 'num')}${th('customers', '客户', 'num')}${th('last', '最近销售', '')}</tr>`
-        : `<tr>${th('sn', '编号', '')}${th('name', '产品', '')}<th>分类</th>${th('price', '价格', 'num')}${th('stock', '库存', 'num')}${th('amount', res.window + '销售额', 'num')}${th('qty', '数量', 'num')}${th('orders', '单数', 'num')}${th('customers', '客户', 'num')}${th('last', '最近销售', '')}</tr>`;
+        ? `<tr>${th('name', '型号', '')}${th('batches', '货号', 'num')}<th>分类</th>${th('price', '价格', 'num')}${th('qty', '数量', 'num')}${th('amount', res.window + '销售额', 'num')}${th('stock', '库存合计', 'num')}${th('orders', '单数', 'num')}${th('customers', '客户', 'num')}${th('last', '最近销售', '')}</tr>`
+        : `<tr>${th('sn', '编号', '')}${th('name', '产品', '')}<th>分类</th>${th('price', '价格', 'num')}${th('qty', '数量', 'num')}${th('amount', res.window + '销售额', 'num')}${th('stock', '库存', 'num')}${th('orders', '单数', 'num')}${th('customers', '客户', 'num')}${th('last', '最近销售', '')}</tr>`;
       const body = byModel
         ? res.rows.map((p, i) => `<tr class="click" data-prod="model:${esc(p.model_name)}" data-row="${i}"><td class="lead"><div class="prod-name" title="${esc(p.model_name)}">${esc(p.model_name)}</div></td>
             <td class="num fold" data-fold="m${i}" data-model="${esc(p.model_name)}" title="展开 / 收起该型号的各货号"><span class="tri-fold">▸</span>${fmtInt(p.groups ?? p.batches)}<div class="muted small">${p.batches !== (p.groups ?? p.batches) ? `${fmtInt(p.batches)} 条 · ` : ''}${!p.batches_in_stock ? '无货' : p.batches_in_stock === p.batches ? '全有货' : `${fmtInt(p.batches_in_stock)} 条有货`}</div></td>
             <td class="small">${esc(p.class)}<div class="muted">${esc(p.group)}</div></td><td class="num">${p.price ? fmtMoney(p.price) : '<span class="muted">—</span>'}</td>
+            <td class="num">${fmtInt(p.sales_qty)}</td><td class="num">${inlineBar(p.sales_amount, max, fmtMoney(p.sales_amount))}</td>
             <td class="num">${fmtInt(p.stock)}${unitTag(p)}${p.units > 1 ? ' <span class="tag warn" title="该型号下有库存的批号之间计量单位不一致，合计仅供参考">单位不一</span>' : ''}${p.low_batches ? ` <span class="tag bad" title="${p.low_batches} 个批号低于下限">低</span>` : ''}</td>
-            <td class="num">${inlineBar(p.sales_amount, max, fmtMoney(p.sales_amount))}</td><td class="num">${fmtInt(p.sales_qty)}</td><td class="num">${p.sales_orders}</td><td class="num">${p.sales_customers}</td><td class="nowrap small">${esc(p.last_sale || '—')}</td></tr>`).join('')
+            <td class="num">${p.sales_orders}</td><td class="num">${p.sales_customers}</td><td class="nowrap small">${esc(p.last_sale || '—')}</td></tr>`).join('')
         : res.rows.map((p) => `<tr class="click" data-prod="${p.id}"><td class="nowrap small">${esc(p.sn || '（无编号）')}</td><td class="lead"><div class="prod-name" title="${esc(p.name)}">${esc(p.name)}</div><div class="muted small">${esc([p.pack, p.model].filter((x) => x && x !== '-').join(' · '))}${p.status && p.status !== '正常' ? ` · <span class="tag warn">${esc(p.status)}</span>` : ''}</div></td>
-            <td class="small">${esc(p.class)}<div class="muted">${esc(p.group)}</div></td><td class="num">${p.price ? fmtMoney(p.price) : '<span class="muted">—</span>'}</td><td class="num">${fmtInt(p.stock)}${unitTag(p)}${p.stock_low ? ` <span class="tag bad" title="下限 ${p.ldown}">低</span>` : ''}</td>
-            <td class="num">${inlineBar(p.sales_amount, max, fmtMoney(p.sales_amount))}</td><td class="num">${fmtInt(p.sales_qty)}</td><td class="num">${p.sales_orders}</td><td class="num">${p.sales_customers}</td><td class="nowrap small">${esc(p.last_sale || '—')}</td></tr>`).join('');
+            <td class="small">${esc(p.class)}<div class="muted">${esc(p.group)}</div></td><td class="num">${p.price ? fmtMoney(p.price) : '<span class="muted">—</span>'}</td><td class="num">${fmtInt(p.sales_qty)}</td><td class="num">${inlineBar(p.sales_amount, max, fmtMoney(p.sales_amount))}</td>
+            <td class="num">${fmtInt(p.stock)}${unitTag(p)}${p.stock_low ? ` <span class="tag bad" title="下限 ${p.ldown}">低</span>` : ''}</td><td class="num">${p.sales_orders}</td><td class="num">${p.sales_customers}</td><td class="nowrap small">${esc(p.last_sale || '—')}</td></tr>`).join('');
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> ${unit}${byModel ? '（同一产品名下的货号 / 包装已合并；点“货号”列展开各货号，点行打开型号详情）' : ''}</p>
         <table><thead>${head}</thead><tbody>${body || `<tr><td colspan="10" class="empty">没有符合条件的${byModel ? '型号' : '产品'}</td></tr>`}</tbody></table>`;
       list.appendChild(pager(res, load));
@@ -1610,13 +1611,13 @@ function mergedRows(doc, key, isModel, head, tail, cols, subNote) {
 }
 const batchNote = (l) => l.batchnum && l.batchnum !== l.batch ? '批号 ' + esc(l.batchnum) : '';
 // 型号详情“各货号库存”：同一货号的几种包装合成一行（库存 / 销售相加，单数按订单去重），点“包装”展开各包装记录；展开行同货号同底色，点行打开该包装记录
-// 产品列表（按型号）里展开的货号行：与型号行同样的十列，货号 / 包装 / 状态 / — / 库存 / 销售额 / 数量 / 单数 / — / 最近销售；同货号同底色
+// 产品列表（按型号）里展开的货号行：与型号行同样的十列，货号 / 包装 / 状态 / — / 数量 / 销售额 / 库存 / 单数 / — / 最近销售；同货号同底色
 function modelGroupRow(g, gi, key, model) {
   const c = gi % 6, label = esc(g.batch.startsWith('#') ? '无编号 ' + g.batch : g.batch);
   const packs = g.pack_count === 1 ? (g.packs[0].pack ? esc(g.packs[0].pack) : '<span class="muted">—</span>') : `${g.pack_count} 种包装 ${g.packs.map((b) => `<span class="bchip bc${c}">${esc(b.pack || '（无包装）')}</span>`).join('')}`;
   const target = g.pack_count === 1 ? String(g.packs[0].id) : `model:${model}`;
   return `<tr class="sub click bc${c}" data-sub="${key}" data-prod="${esc(target)}" title="${g.pack_count === 1 ? '打开该包装记录' : '打开型号详情看各包装'}"><td class="small"><span class="bchip bc${c}">${label}</span></td><td class="small">${packs}</td><td class="small">${esc(g.status || '')}</td><td></td>
-    <td class="num">${fmtInt(g.stock)}${unitTag(g)}${g.stock_low ? ' <span class="tag bad">低</span>' : ''}</td><td class="num">${fmtMoney(g.sales_amount)}</td><td class="num">${fmtInt(g.sales_qty)}</td><td class="num">${g.sales_orders || ''}</td><td></td><td class="nowrap small">${esc(g.last_sale || '—')}</td></tr>`;
+    <td class="num">${fmtInt(g.sales_qty)}</td><td class="num">${fmtMoney(g.sales_amount)}</td><td class="num">${fmtInt(g.stock)}${unitTag(g)}${g.stock_low ? ' <span class="tag bad">低</span>' : ''}</td><td class="num">${g.sales_orders || ''}</td><td></td><td class="nowrap small">${esc(g.last_sale || '—')}</td></tr>`;
 }
 function batchGroupRows(g, gi) {
   const label = esc(g.batch.startsWith('#') ? '无编号 ' + g.batch : g.batch);
