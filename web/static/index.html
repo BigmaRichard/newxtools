@@ -130,18 +130,14 @@ details.dup > summary:hover { color: var(--accent); }
 .fold-chip .eye .eye-open { display: none; } .fold-chip .eye .eye-off { display: block; }
 .who-cell .mid { display: flex; align-items: flex-end; gap: 6px; }
 /* 订单表“客户”“主题”表头上的小眼睛：点一下整列内容不显示（截屏时不露客户名 / 主题），再点恢复；记在 localStorage */
-/* 销售分析：年度合计卡下的“剔除客户看影响”清单 */
-.cut-list { border-top: 1px solid var(--border); margin-top: 8px; }
-.cut-row { display: grid; grid-template-columns: 18px 1fr auto auto; gap: 8px; align-items: center; padding: 3px 0; font-size: 13px; }
-.cut-row .eye { color: var(--muted); display: inline-flex; cursor: pointer; }
-.cut-row .eye:hover { color: var(--accent); }
-.cut-row .eye svg { width: 14px; height: 14px; display: block; }
-.cut-row .eye .eye-off { display: none; }
-.cut-row.off .eye .eye-open { display: none; } .cut-row.off .eye .eye-off { display: block; }
-.cut-row.off .nm, .cut-row.off b { text-decoration: line-through; color: var(--muted); }
-.cut-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cut-row b { font-variant-numeric: tabular-nums; }
-tr.cut-off td { opacity: .45; text-decoration: line-through; }
+/* 销售分析明细行左侧的小眼睛：关掉该行，年度合计随之重算 */
+.row-eye { display: inline-flex; vertical-align: middle; margin-right: 5px; color: var(--muted); cursor: pointer; }
+.row-eye:hover { color: var(--accent); }
+.row-eye svg { width: 13px; height: 13px; display: block; }
+.row-eye .eye-off { display: none; } .row-eye.off .eye-open { display: none; } .row-eye.off .eye-off { display: block; }
+tr.cut-off td { opacity: .45; }
+tr.cut-off td.lead, tr.cut-off td.num { text-decoration: line-through; }
+tr.cut-off td:first-child { opacity: 1; }
 .col-eye { display: inline-flex; vertical-align: middle; margin-left: 5px; color: var(--muted); cursor: pointer; }
 .col-eye:hover { color: var(--accent); }
 .col-eye svg { width: 13px; height: 13px; display: block; }
@@ -1119,7 +1115,7 @@ async function pageSales(view, params) {
     $('#crumbs').querySelectorAll('a[data-clear]').forEach((a) => a.addEventListener('click', () => { state[a.dataset.clear] = ''; load(); }));
     const all = $('#clearAll'); if (all) all.addEventListener('click', () => { Object.keys(SALES_FILTERS).forEach((k) => { state[k] = ''; }); load(); });
   };
-  const excluded = new Set();   // 年度合计里被剔除的客户 key（集团行为 "group:名称"），只在本页面内有效
+  const excluded = new Set();   // 明细表里被小眼睛关掉的行（key；集团行为 "group:名称"），只在本页面内有效
   const load = async () => {
     setHash('sales', current());
     const table = $('#table');
@@ -1134,24 +1130,25 @@ async function pageSales(view, params) {
       barChart($('#chart'), { labels: d.monthly.map((m) => `${Number(m.month)}月`), height: 260,
         series: years.map((y, i) => ({ name: y, color: SERIES[i], values: d.monthly.map((m) => (m.cells[y] || {}).amount || 0) })),
         tipFn: (i) => `<b>${Number(d.monthly[i].month)} 月</b><br>` + years.map((y) => `${y}：${fmtMoney((d.monthly[i].cells[y] || {}).amount || 0)}（${(d.monthly[i].cells[y] || {}).count || 0} 单）`).join('<br>') });
-      // 年度合计 + “剔除客户看影响”：前 20 名销售客户（集团行算一家），点小眼睛把它当年的销售额从合计里去掉，看少了它合计变成多少
-      const topCust = d.by === 'customer' ? d.rows.slice(0, 20) : (await api('/api/sales', { ...current(), by: 'customer', limit: 20 })).rows;
+      // 年度合计：明细表里关掉（小眼睛）的行，各年金额 / 单数从合计里去掉后重算；卡片样式不变
+      const offRows = () => d.rows.filter((r) => excluded.has(String(r.key)));
+      const adjTotals = () => {
+        const off = offRows();
+        return Object.fromEntries(years.map((y) => { const t = d.totals[y] || {}; const k = off.reduce((a, r) => { const c = r.cells[y] || {}; a.amount += c.amount || 0; a.count += c.count || 0; a.qty += c.qty || 0; return a; }, { amount: 0, count: 0, qty: 0 });
+          return [y, { amount: (t.amount || 0) - k.amount, count: (t.count || 0) - k.count, qty: (t.qty || 0) - k.qty, cut: k.amount }]; }));
+      };
       const renderTotals = () => {
-        const off = topCust.filter((c) => excluded.has(String(c.key)));
-        const cut = (y) => off.reduce((t, c) => { const x = c.cells[y] || {}; t.amount += x.amount || 0; t.count += x.count || 0; t.qty += x.qty || 0; return t; }, { amount: 0, count: 0, qty: 0 });
-        const adj = Object.fromEntries(years.map((y) => { const t = d.totals[y] || {}, k = cut(y); return [y, { amount: (t.amount || 0) - k.amount, count: (t.count || 0) - k.count, qty: (t.qty || 0) - k.qty, cutAmount: k.amount }]; }));
-        $('#totals').innerHTML = `<h2>年度合计 <span class="count">${fmtInt(d.total_rows)} 行 · 显示前 ${fmtInt(d.rows.length)} 行${off.length ? ` · 已剔除 ${off.length} 家` : ''}</span></h2>
-          <table><thead><tr><th>年份</th><th class="num">金额</th><th class="num">单数</th>${d.line_mode ? '<th class="num">数量</th>' : ''}<th class="num">同比</th>${off.length ? '<th class="num">剔除后金额</th><th class="num">剔除后同比</th>' : ''}</tr></thead><tbody>
-          ${years.map((y, i) => { const t = d.totals[y] || {}, p = d.totals[years[i + 1]] || {}, a = adj[y], ap = adj[years[i + 1]];
-            return `<tr><td>${y}</td><td class="num">${fmtMoney(t.amount)}</td><td class="num">${fmtInt(t.count)}</td>${d.line_mode ? `<td class="num">${fmtInt(t.qty)}</td>` : ''}<td class="num">${i + 1 < years.length ? yoyText(t.amount, p.amount) : '<span class="muted">—</span>'}</td>
-              ${off.length ? `<td class="num"><b>${fmtMoney(a.amount)}</b><div class="muted small">${a.cutAmount ? `−${fmtMoney(a.cutAmount)} · ${t.amount ? (a.cutAmount / t.amount * 100).toFixed(1) : '0'}%` : '—'}</div></td><td class="num">${i + 1 < years.length && ap ? yoyText(a.amount, ap.amount) : '<span class="muted">—</span>'}</td>` : ''}</tr>`; }).join('')}
-          </tbody></table><p class="note">同比 = 与表中下一个年份比较；勾选“同期至今”后各年只算到今天的月日。${off.length ? '剔除后 = 合计减去下面关掉的客户各年的销售额。' : ''}</p>
-          <div class="cut-list"><div class="muted small" style="margin:8px 0 4px">剔除客户看影响 <span class="muted">· 前 ${topCust.length} 名销售客户（${latest} 年），点小眼睛关掉它当年的销售额</span></div>
-          ${topCust.map((c) => { const x = c.cells[latest] || {}, isOff = excluded.has(String(c.key)); return `<div class="cut-row${isOff ? ' off' : ''}" data-key="${esc(String(c.key))}"><span class="eye" title="${isOff ? '恢复计入' : '从合计里去掉这家'}">${EYE_SVG}</span><span class="nm">${esc(c.name)}${c.members ? ` <span class="muted small">集团 · ${c.members.length} 家</span>` : ''}</span><b>${fmtMoney(x.amount || 0)}</b><span class="muted small">${d.totals[latest] && d.totals[latest].amount ? ((x.amount || 0) / d.totals[latest].amount * 100).toFixed(1) + '%' : ''}</span></div>`; }).join('')}
-          ${off.length ? `<a class="small" id="cutReset">全部恢复</a>` : ''}</div>`;
-        $('#totals').querySelectorAll('.cut-row .eye').forEach((el) => el.addEventListener('click', () => { const k = el.parentElement.dataset.key; excluded.has(k) ? excluded.delete(k) : excluded.add(k); renderTotals(); }));
-        const reset = $('#cutReset'); if (reset) reset.addEventListener('click', () => { excluded.clear(); renderTotals(); });
-        if (d.by === 'customer') table.querySelectorAll('tr[data-ckey]').forEach((tr) => tr.classList.toggle('cut-off', excluded.has(tr.dataset.ckey)));
+        const off = offRows(), tt = adjTotals();
+        $('#totals').innerHTML = `<h2>年度合计 <span class="count">${fmtInt(d.total_rows)} 行 · 显示前 ${fmtInt(d.rows.length)} 行${off.length ? ` · <span class="down">已关掉 ${off.length} 行</span>` : ''}</span></h2><table><thead><tr><th>年份</th><th class="num">金额</th><th class="num">单数</th>${d.line_mode ? '<th class="num">数量</th>' : ''}<th class="num">同比</th></tr></thead><tbody>
+          ${years.map((y, i) => { const t = tt[y], p = tt[years[i + 1]] || {}; return `<tr><td>${y}</td><td class="num">${fmtMoney(t.amount)}${t.cut ? `<div class="muted small">原 ${fmtMoney((d.totals[y] || {}).amount)} · −${fmtMoney(t.cut)}</div>` : ''}</td><td class="num">${fmtInt(t.count)}</td>${d.line_mode ? `<td class="num">${fmtInt(t.qty)}</td>` : ''}<td class="num">${i + 1 < years.length ? yoyText(t.amount, p.amount) : '<span class="muted">—</span>'}</td></tr>`; }).join('')}
+        </tbody></table><p class="note">同比 = 与表中下一个年份比较；勾选“同期至今”后各年只算到今天的月日。${off.length ? `点明细行左侧的小眼睛可恢复；<a id="cutReset">全部恢复</a>。` : '点明细行左侧的小眼睛，可把该行当年的销售额从合计里去掉，看它对合计的影响。'}</p>`;
+        const reset = $('#cutReset'); if (reset) reset.addEventListener('click', () => { excluded.clear(); renderTotals(); syncTable(); });
+      };
+      const syncTable = () => {   // 明细表：关掉的行变灰，表头“合计”行同步重算
+        const tt = adjTotals();
+        table.querySelectorAll('tr[data-ckey]').forEach((tr) => { const on = excluded.has(tr.dataset.ckey); tr.classList.toggle('cut-off', on); const eye = tr.querySelector('.row-eye'); if (eye) eye.classList.toggle('off', on); });
+        const total = table.querySelector('tr.total');
+        if (total) total.innerHTML = `<td></td><td>合计${excluded.size ? ` <span class="muted small">（已关掉 ${offRows().length} 行）</span>` : ''}</td>${years.map((y) => `<td class="num">${fmtMoney(tt[y].amount)}<div class="muted small">${fmtInt(tt[y].count)} 单${d.line_mode ? ` · ${fmtInt(tt[y].qty)}` : ''}</div></td>`).join('')}<td class="num">${years.length > 1 ? yoyText(tt[years[0]].amount, tt[years[1]].amount) : '<span class="muted">—</span>'}</td><td class="num">${fmtMoney(years.reduce((a, y) => a + tt[y].amount, 0))}</td><td></td>`;
       };
       renderTotals();
       // 明细表
@@ -1168,7 +1165,7 @@ async function pageSales(view, params) {
             const name = isGroup ? `<span class="fold" data-fold="g${idx}" title="展开 / 收起集团内各公司"><span class="tri-fold">▸</span>${esc(r.name)}</span>${(r.members.some((m) => m.customer && m.customer.severe)) ? `<span class="tag severe" title="集团内有严重逾期的公司：${esc(r.members.filter((m) => m.customer && m.customer.severe).map((m) => m.name).join('、'))}">严重逾期</span>` : ''}`
               : d.by === 'customer' ? custLink(r.customer) : d.by === 'product' ? prodLink({ model_name: r.model_name, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
             const drillable = !(d.by === 'customer' && !r.id && !isGroup);
-            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ''} data-ckey="${esc(String(r.key))}"><td class="muted">${sub ? '└' : rank}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small">${esc(r.sub)}</div>` : ''}</td>
+            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ` data-ckey="${esc(String(r.key))}"`}><td class="muted nowrap">${sub ? '└' : `<span class="row-eye${excluded.has(String(r.key)) ? ' off' : ''}" title="关掉 / 恢复：把这一行当年的销售额从年度合计里去掉">${EYE_SVG}</span>${rank}`}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small">${esc(r.sub)}</div>` : ''}</td>
             ${years.map((y, k) => { const c = r.cells[y] || { amount: 0, count: 0, qty: 0 }; return `<td class="num">${k === 0 ? inlineBar(c.amount, max, fmtMoney(c.amount)) : fmtMoney(c.amount)}<div class="muted small">${c.count ? `${fmtInt(c.count)} 单` : '—'}${d.line_mode && c.qty ? ` · ${fmtInt(c.qty)}` : ''}</div></td>`; }).join('')}
             <td class="num">${r.yoy == null ? '<span class="muted">—</span>' : `<span class="${r.yoy >= 0 ? 'up' : 'down'}">${r.yoy > 0 ? '+' : ''}${r.yoy}%</span>`}</td><td class="num">${fmtMoney(r.total)}</td>
             <td class="nowrap small">${drillable && drill[d.by] ? `<a data-drill="${idx}">下钻 ${dimName[drill[d.by]]}</a> · ` : ''}<a data-orders="${idx}">订单</a></td></tr>`;
@@ -1188,9 +1185,10 @@ async function pageSales(view, params) {
       table.querySelectorAll('a[data-drill]').forEach((a) => a.addEventListener('click', () => { const r = rowAt(a.dataset.drill); Object.assign(state, filterFor(r)); state.by = drill[d.by]; view.querySelectorAll('#dims .chip').forEach((c) => c.classList.toggle('active', c.dataset.by === state.by)); load(); }));
       table.querySelectorAll('a[data-orders]').forEach((a) => a.addEventListener('click', () => { const r = rowAt(a.dataset.orders); const q = { who: state.who, customer_id: state.customer_id, prod: state.prod, class: state.class, group: state.group, state: state.state, type: state.type, owner: state.owner, month: state.month, ...filterFor(r) };
         if (!q.month) { q.from = `${latest}-01-01`; q.to = d.ytd ? `${latest}-${META.today.slice(5)}` : `${latest}-12-31`; } go('orders', q); }));
+      table.querySelectorAll('.row-eye').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); const k = el.closest('tr').dataset.ckey; excluded.has(k) ? excluded.delete(k) : excluded.add(k); renderTotals(); syncTable(); }));
       bindFolds(table);
       bindLinks(table);
-      if (d.by === 'customer') table.querySelectorAll('tr[data-ckey]').forEach((tr) => tr.classList.toggle('cut-off', excluded.has(tr.dataset.ckey)));
+      syncTable();
     } catch (e) { table.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
     table.classList.remove('loading');
   };
