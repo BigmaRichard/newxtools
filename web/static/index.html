@@ -1092,7 +1092,7 @@ async function pageActions(view, params) {
 const SALES_DIMS = [['who', '业务员'], ['customer', '客户'], ['product', '产品型号'], ['class', '产品分类'], ['group', '产品大类'], ['region', '地区'], ['type', '订单类型'], ['month', '月份']];
 const SALES_FILTERS = { who: '业务员', customer_id: '客户', prod: '产品型号', class: '分类', group: '大类', state: '地区', type: '类型', owner: '所有者', month: '月份' };
 async function pageSales(view, params) {
-  const f = { by: 'who', years: '', ytd: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '60', ...params };
+  const f = { by: 'who', years: '', ytd: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
   const yearsAll = META.years.slice(0, 8);
   const state = { ...f, years: f.years || yearsAll.slice(0, 3).join(',') };
   view.innerHTML = `<h1>销售分析 <span class="muted small">订单金额，不含意外中止；按产品 / 分类 / 大类维度或带产品条件时用订单明细金额</span></h1>
@@ -1101,7 +1101,7 @@ async function pageSales(view, params) {
         <span class="spacer"></span>
         <span class="years" id="years">${yearsAll.map((y) => `<label><input type="checkbox" value="${y}" ${state.years.split(',').includes(String(y)) ? 'checked' : ''}>${y}</label>`).join('')}</span>
         <label class="small" title="各年份只统计 1 月 1 日至今天的月日，便于与今年比较"><input type="checkbox" id="ytd" ${state.ytd ? 'checked' : ''}> 同期至今</label>
-        <select id="limit" class="small"><option value="60" ${state.limit === '60' ? 'selected' : ''}>前 60 行</option><option value="200" ${state.limit === '200' ? 'selected' : ''}>前 200 行</option><option value="1000" ${state.limit === '1000' ? 'selected' : ''}>前 1000 行</option></select>
+        <select id="limit" class="small"><option value="100" ${state.limit === '100' ? 'selected' : ''}>前 100 行</option><option value="200" ${state.limit === '200' ? 'selected' : ''}>前 200 行</option><option value="1000" ${state.limit === '1000' ? 'selected' : ''}>前 1000 行</option></select>
         ${exportButton('sales')}
       </div>
       <div class="crumbs" id="crumbs"></div>

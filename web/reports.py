@@ -212,7 +212,7 @@ class ReportQueries:
             by = "who"
         years = self._years()
         ytd = self.get("ytd") in ("1", "true", "on")
-        limit = min(max(_int(self.get("limit"), 60), 1), 5000)
+        limit = min(max(_int(self.get("limit"), 100), 1), 5000)
         marks = ",".join("?" * len(years))
         clauses = ["o._deleted_at IS NULL", f"o.status <> '{CANCELLED}'", f"substr(o.date, 1, 4) IN ({marks})"]
         args: List[Any] = [str(y) for y in years]
