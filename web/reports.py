@@ -276,6 +276,8 @@ class ReportQueries:
                     totals[y]["count"] += cell["count"]
                     totals[y]["amount"] = round(totals[y]["amount"] + cell["amount"], 2)
                     totals[y]["qty"] = round(totals[y]["qty"] + cell["qty"], 3)
+        if by == "customer":   # 集团归并：同一集团的客户合成一行（成员挂在 members 下，前端可展开），按集团合计排序
+            rows = self._merge_customer_groups(rows, years)
         if by == "month":
             ordered = sorted(rows.values(), key=lambda r: r["key"])
         else:
@@ -293,6 +295,54 @@ class ReportQueries:
             "filters": self._sales_filter_labels(),
         }
 
+    def _merge_customer_groups(self, rows: Dict[Any, Dict[str, Any]], years: List[int]) -> Dict[Any, Dict[str, Any]]:
+        """按客户的行里，属于同一集团（data/customer_groups.json 规则）的合成一行：key = "group:集团名"，
+        cells / total / count 相加，members 为各成员行（按合计降序），customer_ids 供下钻与看订单。"""
+        out: Dict[Any, Dict[str, Any]] = {}
+        for key, row in rows.items():
+            cust = row.get("customer") or {}
+            grp = cust.get("group") if cust.get("id") is not None else None
+            if not grp:
+                out[key] = row
+                continue
+            gkey = f"group:{grp}"
+            g = out.get(gkey)
+            if g is None:
+                g = {"key": gkey, "name": grp, "sub": "", "cells": {}, "total": 0.0, "count": 0, "id": None, "group": grp, "members": [], "customer_ids": []}
+                out[gkey] = g
+            g["members"].append(row)
+            g["customer_ids"].append(cust["id"])
+            g["total"] = round(g["total"] + row["total"], 2)
+            g["count"] += row["count"]
+            for y, cell in row["cells"].items():
+                gc = g["cells"].setdefault(y, {"count": 0, "amount": 0.0, "qty": 0.0})
+                gc["count"] += cell["count"]
+                gc["amount"] = round(gc["amount"] + cell["amount"], 2)
+                gc["qty"] = round(gc["qty"] + cell["qty"], 3)
+        latest = str(years[0])
+        for g in out.values():
+            if g.get("members"):
+                g["members"].sort(key=lambda r: (-(r["cells"].get(latest, {}).get("amount", 0.0)), -r["total"]))
+                g["sub"] = f"集团 · {len(g['members'])} 家：" + "、".join(m["name"] for m in g["members"][:3]) + ("…" if len(g["members"]) > 3 else "")
+                prev = str(years[1]) if len(years) > 1 else None
+                for m in g["members"]:
+                    cur_a = m["cells"].get(latest, {}).get("amount", 0.0)
+                    prev_a = m["cells"].get(prev, {}).get("amount", 0.0) if prev else 0.0
+                    m["yoy"] = round((cur_a - prev_a) / abs(prev_a) * 100, 1) if prev_a else None
+        return out
+
+    def customer_groups(self) -> Dict[str, Any]:
+        """集团归并规则与当前命中的客户（供核对）。"""
+        rules = self.lk.groups.rules()
+        members: Dict[str, List[Dict[str, Any]]] = {r["name"]: [] for r in rules}
+        for cid, c in self.lk.customers.items():
+            grp = self.lk.groups.group_of(cid, c.get("cu_name") or c.get("m_name") or "")
+            if grp in members:
+                members[grp].append({"id": cid, "name": c.get("cu_name") or c.get("m_name") or "", "owner": self.lk.user_name(c.get("owner"))})
+        for r in rules:
+            r["members"] = sorted(members[r["name"]], key=lambda x: x["name"])
+        return {"rows": rules}
+
     def _sales_monthly(self, base: str, args: Sequence[Any], years: List[int]) -> List[Dict[str, Any]]:
         agg = "COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a" if "contract_goods g" in base else f"COUNT(*) n, SUM({ORDER_RMB_EXPR}) a"
         got: Dict[str, Dict[str, Any]] = {}
@@ -305,8 +355,10 @@ class ReportQueries:
         if self.get("who"):
             out["who"] = self.lk.part_to_name(self.get("who"))
         if self.get("customer_id"):
-            c = self.lk.customers.get(_int(self.get("customer_id")))
-            out["customer_id"] = (c or {}).get("cu_name") or (c or {}).get("m_name") or self.get("customer_id")
+            cids = self.customer_ids()
+            names = [((self.lk.customers.get(c) or {}).get("cu_name") or (self.lk.customers.get(c) or {}).get("m_name") or str(c)) for c in cids]
+            grp = self.lk.group_of(cids[0]) if cids else None
+            out["customer_id"] = (f"{grp}（{len(names)} 家）" if len(cids) > 1 and grp else "、".join(names)) or self.get("customer_id")
         if self.get("prod"):
             out["prod"] = (self.lk.product(self.get("prod")) or {}).get("name") or self.get("prod")
         if self.get("class"):

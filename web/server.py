@@ -43,7 +43,7 @@ from sync.specs import CONTRACT_CUSTOM_FIELDS
 from sync.store import col_name
 from web.auth import AccessControl
 from web.export import EXPORT_MAX, Download, build_export
-from web.local import SevereExempt
+from web.local import CustomerGroups, SevereExempt
 from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries, _num, display_city
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -165,8 +165,10 @@ def _valid_date(value: Any) -> bool:
 class Lookups:
     """内存中的小表：人员、字典、客户对照、产品、字段中文名。"""
 
-    def __init__(self, conn: sqlite3.Connection, exempt: Optional[SevereExempt] = None):
-        self.exempt = exempt or SevereExempt(Path(conn.execute("PRAGMA database_list").fetchone()[2] or "").parent / "severe_exempt.json")
+    def __init__(self, conn: sqlite3.Connection, exempt: Optional[SevereExempt] = None, groups: Optional[CustomerGroups] = None):
+        data_dir = Path(conn.execute("PRAGMA database_list").fetchone()[2] or "").parent
+        self.exempt = exempt or SevereExempt(data_dir / "severe_exempt.json")
+        self.groups = groups or CustomerGroups(data_dir / "customer_groups.json")   # 客户集团归并规则（本地文件，热加载）
         self.users: Dict[str, Dict[str, Any]] = {}
         for r in conn.execute("SELECT part, name, status, dept FROM crm_user WHERE _deleted_at IS NULL ORDER BY id"):
             self.users[r["part"]] = {"part": r["part"], "name": r["name"] or r["part"], "active": str(r["status"]) == "0", "dept": r["dept"]}
@@ -445,7 +447,14 @@ class Lookups:
         ex = self.exempt.get(cid)
         if ex:
             out["severe_exempt"] = ex
+        grp = self.groups.group_of(cid, out["name"])
+        if grp:
+            out["group"] = grp
         return out
+
+    def group_of(self, cid: Any) -> Optional[str]:
+        c = self.customers.get(_int(cid, 0))
+        return self.groups.group_of(cid, (c or {}).get("cu_name") or (c or {}).get("m_name") or "") if c else None
 
     def user_name(self, part: Any) -> str:
         if part is None:
@@ -482,6 +491,7 @@ class Mirror:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.exempt = SevereExempt(self.path.parent / "severe_exempt.json")   # 严重逾期标记的手工解除名单（本地文件，热加载）
+        self.groups = CustomerGroups(self.path.parent / "customer_groups.json")   # 客户集团归并规则（本地文件，热加载）
         self._lock = threading.Lock()
         self._lookups: Optional[Lookups] = None
         self._stamp: Any = None
@@ -505,7 +515,7 @@ class Mirror:
                 stamp = self.stamp(conn)
                 if self._lookups is None or stamp != self._stamp:
                     t0 = time.time()
-                    self._lookups = Lookups(conn, self.exempt)
+                    self._lookups = Lookups(conn, self.exempt, self.groups)
                     self._stamp = stamp
                     logger.info("已加载对照表：客户 %d、人员 %d、产品 %d（%.2fs）", len(self._lookups.customers), len(self._lookups.users),
                                 len(self._lookups.products), time.time() - t0)
@@ -538,10 +548,14 @@ class Query(ReportQueries):
             keys.append(c["sn"])
         return keys
 
+    def customer_ids(self) -> List[int]:
+        """customer_id 参数：单个 id，或逗号分隔的多个（集团归并后的一组客户）。"""
+        return [c for c in (_int(x, 0) for x in (self.get("customer_id") or "").split(",")) if c]
+
     def customer_clause(self, alias: str, clauses: List[str], args: List[Any], numeric_is_id: bool = False) -> None:
-        cid = _int(self.get("customer_id"), 0)
-        if cid:
-            keys = [str(cid)] if numeric_is_id else self.customer_keys(cid)
+        cids = self.customer_ids()
+        if cids:
+            keys = [str(c) for c in cids] if numeric_is_id else [k for c in cids for k in self.customer_keys(c)]
             clauses.append(f"{alias}.cu_sn IN ({','.join('?' * len(keys))})")
             args.extend(keys)
 
@@ -857,7 +871,7 @@ class Query(ReportQueries):
         return {
             "id": c["id"], "sn": c.get("sn"), "name": c.get("cu_name") or c.get("m_name"), "short": c.get("m_name"),
             "owner": self.lk.user_name(c.get("owner")), "owner_part": c.get("owner"), "severe": self.lk.severe(c["id"], self.today),
-            "severe_exempt": self.lk.exempt.get(c["id"]), "severe_raw": self.lk.severe_raw(c["id"], self.today),
+            "severe_exempt": self.lk.exempt.get(c["id"]), "severe_raw": self.lk.severe_raw(c["id"], self.today), "group": self.lk.group_of(c["id"]),
             "life_text": self.lk.text("customer", "life", c.get("life")), "type_text": self.lk.text("customer", "type", c.get("type")),
             "stage_text": self.lk.text("customer", "cu_status", c.get("cu_status")), "industry_text": self.lk.text("customer", "industry", c.get("industry")),
             "city": display_city(c.get("city"), c.get("district"), c.get("address")), "created": c.get("creatdate"), "modified": c.get("moddate"), "tel": c.get("tel"), "address": c.get("address"),
@@ -1290,6 +1304,7 @@ ROUTES: List[Tuple[re.Pattern, Callable[[Query, re.Match], Any]]] = [
     (re.compile(r"^/api/customers/(\d+)$"), lambda q, m: q.customer_detail(int(m.group(1)))),
     (re.compile(r"^/api/receivables$"), lambda q, m: q.receivables()),
     (re.compile(r"^/api/severe_exempt$"), lambda q, m: {"rows": q.lk.exempt.all()}),
+    (re.compile(r"^/api/customer_groups$"), lambda q, m: q.customer_groups()),
     (re.compile(r"^/api/receipts$"), lambda q, m: q.receipts()),
     (re.compile(r"^/api/actions$"), lambda q, m: q.actions()),
     (re.compile(r"^/api/sales$"), lambda q, m: q.sales()),

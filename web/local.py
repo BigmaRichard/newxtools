@@ -90,3 +90,80 @@ class SevereExempt:
             if gone:
                 self._save()
             return gone
+
+
+class CustomerGroups:
+    """客户集团归并规则（data/customer_groups.json），热加载：
+    [{"name": "药明康德", "patterns": ["合全", "药明康德"], "ids": [123], "exclude": [456], "note": "..."}]
+    客户属于某集团：id 在 ids 里，或客户名含 patterns 中任一片段；exclude 里的 id 不算。多条规则命中时取第一条。"""
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self._lock = threading.Lock()
+        self._rules: List[Dict[str, Any]] = []
+        self._sig: Optional[Tuple[int, int]] = None
+        self._checked = 0.0
+
+    def _load(self) -> None:
+        try:
+            st = os.stat(self.path)
+            sig = (st.st_mtime_ns, st.st_size)
+        except FileNotFoundError:
+            self._rules, self._sig = [], None
+            return
+        if sig == self._sig:
+            return
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8") or "[]")
+        except (OSError, ValueError):
+            raw = []
+        rules = []
+        for r in raw if isinstance(raw, list) else []:
+            name = str((r or {}).get("name") or "").strip()
+            if not name:
+                continue
+            rules.append({
+                "name": name,
+                "patterns": [str(p).strip() for p in (r.get("patterns") or []) if str(p).strip()],
+                "ids": {int(x) for x in (r.get("ids") or []) if str(x).strip().lstrip("-").isdigit()},
+                "exclude": {int(x) for x in (r.get("exclude") or []) if str(x).strip().lstrip("-").isdigit()},
+                "note": str(r.get("note") or ""),
+            })
+        self._rules, self._sig = rules, sig
+
+    def refresh(self, force: bool = False) -> None:
+        with self._lock:
+            now = time.time()
+            if force or now - self._checked > 2:
+                self._checked = now
+                self._load()
+
+    def rules(self) -> List[Dict[str, Any]]:
+        self.refresh(force=True)
+        return [{"name": r["name"], "patterns": list(r["patterns"]), "ids": sorted(r["ids"]), "exclude": sorted(r["exclude"]), "note": r["note"]} for r in self._rules]
+
+    def group_of(self, cid: Any, name: Any) -> Optional[str]:
+        """客户所属集团名；不属于任何集团返回 None。"""
+        self.refresh()
+        if not self._rules:
+            return None
+        try:
+            cid = int(cid)
+        except (TypeError, ValueError):
+            cid = None
+        name = str(name or "")
+        for r in self._rules:
+            if cid is not None and cid in r["exclude"]:
+                continue
+            if (cid is not None and cid in r["ids"]) or any(p in name for p in r["patterns"]):
+                return r["name"]
+        return None
+
+    def save(self, rules: List[Dict[str, Any]]) -> None:
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(rules, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(tmp, self.path)
+            self._sig = None
+            self._load()

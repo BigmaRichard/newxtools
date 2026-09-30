@@ -1131,18 +1131,35 @@ async function pageSales(view, params) {
       const dimName = Object.fromEntries(SALES_DIMS);
       table.innerHTML = `<table><thead><tr><th>#</th><th>${dimName[d.by]}</th>${years.map((y) => `<th class="num">${y}${d.line_mode ? ' 金额 / 数量' : ''}</th>`).join('')}<th class="num">同比</th><th class="num">合计</th><th></th></tr></thead><tbody>
         <tr class="total"><td></td><td>合计</td>${years.map((y) => `<td class="num">${fmtMoney((d.totals[y] || {}).amount)}<div class="muted small">${fmtInt((d.totals[y] || {}).count)} 单${d.line_mode ? ` · ${fmtInt((d.totals[y] || {}).qty)}` : ''}</div></td>`).join('')}<td class="num">${years.length > 1 ? yoyText((d.totals[latest] || {}).amount, (d.totals[years[1]] || {}).amount) : '—'}</td><td class="num">${fmtMoney(years.reduce((s, y) => s + ((d.totals[y] || {}).amount || 0), 0))}</td><td></td></tr>
-        ${d.rows.map((r, i) => {
-          const name = d.by === 'customer' ? custLink(r.customer) : d.by === 'product' ? prodLink({ model_name: r.model_name, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
-          const drillable = !(d.by === 'customer' && !r.id);
-          return `<tr><td class="muted">${i + 1}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small">${esc(r.sub)}</div>` : ''}</td>
+        ${(() => {
+          // 集团行（按客户维度、data/customer_groups.json 归并出的）下面挂成员行，点集团名展开；flat 里按渲染顺序放所有行，供下钻 / 订单按下标取
+          const flat = [];
+          const rowHtml = (r, idx, rank, sub) => {
+            const isGroup = !!(r.members && r.members.length);
+            const name = isGroup ? `<span class="fold" data-fold="g${idx}" title="展开 / 收起集团内各公司"><span class="tri-fold">▸</span>${esc(r.name)}</span>${(r.members.some((m) => m.customer && m.customer.severe)) ? `<span class="tag severe" title="集团内有严重逾期的公司：${esc(r.members.filter((m) => m.customer && m.customer.severe).map((m) => m.name).join('、'))}">严重逾期</span>` : ''}`
+              : d.by === 'customer' ? custLink(r.customer) : d.by === 'product' ? prodLink({ model_name: r.model_name, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
+            const drillable = !(d.by === 'customer' && !r.id && !isGroup);
+            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ''}><td class="muted">${sub ? '└' : rank}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small">${esc(r.sub)}</div>` : ''}</td>
             ${years.map((y, k) => { const c = r.cells[y] || { amount: 0, count: 0, qty: 0 }; return `<td class="num">${k === 0 ? inlineBar(c.amount, max, fmtMoney(c.amount)) : fmtMoney(c.amount)}<div class="muted small">${c.count ? `${fmtInt(c.count)} 单` : '—'}${d.line_mode && c.qty ? ` · ${fmtInt(c.qty)}` : ''}</div></td>`; }).join('')}
             <td class="num">${r.yoy == null ? '<span class="muted">—</span>' : `<span class="${r.yoy >= 0 ? 'up' : 'down'}">${r.yoy > 0 ? '+' : ''}${r.yoy}%</span>`}</td><td class="num">${fmtMoney(r.total)}</td>
-            <td class="nowrap small">${drillable && drill[d.by] ? `<a data-drill="${i}">下钻 ${dimName[drill[d.by]]}</a> · ` : ''}<a data-orders="${i}">订单</a></td></tr>`; }).join('') || `<tr><td colspan="${years.length + 5}" class="empty">没有数据</td></tr>`}
+            <td class="nowrap small">${drillable && drill[d.by] ? `<a data-drill="${idx}">下钻 ${dimName[drill[d.by]]}</a> · ` : ''}<a data-orders="${idx}">订单</a></td></tr>`;
+          };
+          const html = d.rows.map((r, i) => {
+            const idx = flat.push(r) - 1;
+            let h = rowHtml(r, idx, i + 1, '');
+            (r.members || []).forEach((m) => { const mi = flat.push(m) - 1; h += rowHtml(m, mi, '', `g${idx}`); });
+            return h;
+          }).join('');
+          table._flat = flat;
+          return html || `<tr><td colspan="${years.length + 5}" class="empty">没有数据</td></tr>`;
+        })()}
       </tbody></table>`;
-      const filterFor = (r) => ({ who: { who: r.key }, customer: { customer_id: r.id }, product: { prod: r.model_name }, class: { class: r.key }, group: { group: r.key }, region: { state: r.key }, type: { type: r.key }, month: { month: `${latest}-${r.key}` } }[d.by]);
-      table.querySelectorAll('a[data-drill]').forEach((a) => a.addEventListener('click', () => { const r = d.rows[Number(a.dataset.drill)]; Object.assign(state, filterFor(r)); state.by = drill[d.by]; view.querySelectorAll('#dims .chip').forEach((c) => c.classList.toggle('active', c.dataset.by === state.by)); load(); }));
-      table.querySelectorAll('a[data-orders]').forEach((a) => a.addEventListener('click', () => { const r = d.rows[Number(a.dataset.orders)]; const q = { who: state.who, customer_id: state.customer_id, prod: state.prod, class: state.class, group: state.group, state: state.state, type: state.type, owner: state.owner, month: state.month, ...filterFor(r) };
+      const filterFor = (r) => ({ who: { who: r.key }, customer: { customer_id: r.customer_ids ? r.customer_ids.join(',') : r.id }, product: { prod: r.model_name }, class: { class: r.key }, group: { group: r.key }, region: { state: r.key }, type: { type: r.key }, month: { month: `${latest}-${r.key}` } }[d.by]);
+      const rowAt = (i) => table._flat[Number(i)];
+      table.querySelectorAll('a[data-drill]').forEach((a) => a.addEventListener('click', () => { const r = rowAt(a.dataset.drill); Object.assign(state, filterFor(r)); state.by = drill[d.by]; view.querySelectorAll('#dims .chip').forEach((c) => c.classList.toggle('active', c.dataset.by === state.by)); load(); }));
+      table.querySelectorAll('a[data-orders]').forEach((a) => a.addEventListener('click', () => { const r = rowAt(a.dataset.orders); const q = { who: state.who, customer_id: state.customer_id, prod: state.prod, class: state.class, group: state.group, state: state.state, type: state.type, owner: state.owner, month: state.month, ...filterFor(r) };
         if (!q.month) { q.from = `${latest}-01-01`; q.to = d.ytd ? `${latest}-${META.today.slice(5)}` : `${latest}-12-31`; } go('orders', q); }));
+      bindFolds(table);
       bindLinks(table);
     } catch (e) { table.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
     table.classList.remove('loading');
@@ -1856,6 +1873,7 @@ async function openCustomer(id) {
         ${c.severe ? `<div style="grid-column:1/-1"><label>逾期标记</label><span>${severeTag(c)} 最久逾期 ${c.severe.days} 天 · 逾期超 90 天的 ${c.severe.count} 期共 ${fmtMoney(c.severe.amount)} · <a data-exempt="on" title="解除后全系统都不再显示这家的“严重逾期”标签，记在本机 data/severe_exempt.json">解除标记</a></span></div>`
           : c.severe_exempt ? `<div style="grid-column:1/-1"><label>逾期标记</label><span><span class="tag">严重逾期标记已解除</span> <span class="muted small">${esc(c.severe_exempt.since)}${c.severe_exempt.note ? ' · ' + esc(c.severe_exempt.note) : ''}${c.severe_raw ? ` · 本应标记：最久逾期 ${c.severe_raw.days} 天 · ${c.severe_raw.count} 期共 ${fmtMoney(c.severe_raw.amount)}` : ' · 当前已没有逾期超 90 天的计划'}</span> · <a data-exempt="off">恢复标记</a></span></div>` : ''}
         <div><label>所有者</label><span>${esc(c.owner)}</span></div>
+        ${c.group ? `<div><label>集团</label><span>${esc(c.group)} <a data-sales-group="${esc(c.group)}" class="small" title="销售分析里按客户看该集团各公司">集团销售</a></span></div>` : ''}
         <div><label>周期</label><span>${esc(c.life_text)} · ${esc(c.type_text)}</span></div>
         <div><label>阶段</label><span>${esc(c.stage_text)}</span></div>
         <div><label>行业</label><span>${esc(c.industry_text)}</span></div>
@@ -1885,6 +1903,7 @@ async function openCustomer(id) {
     stack[stack.length - 1].html = html;
     $('#drawerTitle').innerHTML = esc(c.name) + severeTag(c);
     $('#drawerBody').innerHTML = html;
+    $('#drawerBody').querySelectorAll('a[data-sales-group]').forEach((a) => a.addEventListener('click', () => { closeDrawer(); go('sales', { by: 'customer', years: String(new Date().getFullYear()) }); }));
     $('#drawerBody').querySelectorAll('a[data-exempt]').forEach((a) => a.addEventListener('click', async (e) => {
       e.preventDefault();
       const on = a.dataset.exempt === 'on';

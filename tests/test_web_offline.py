@@ -997,3 +997,52 @@ def test_receivables_aging_buttons(tmp_path):
     who = query(status="overdue", from_="2000-01-01", aging="d365", who="M23").receivables()
     assert who["total"] == 1 and who["rows"][0]["id"] == 23 and "M23" in [w["part"] for w in who["by_who"]]
     assert all(w["aging"]["d365"] > 0 and w["aging"]["d30"] == 0 for w in who["by_who"])      # 汇总表里只剩这一档的钱
+
+
+def test_customer_groups_merge_in_sales(tmp_path):
+    """客户集团归并：规则文件热加载，销售分析按客户把同集团客户合成一行（成员可展开），customer_id 支持多个 id 下钻。"""
+    import json as _json
+    path = tmp_path / "groups.sqlite"
+    store = Store(path)
+    seed(store)
+    y = str(THIS_YEAR)
+    custs = [{"id": "41", "sn": "", "cu_name": "泰兴合全药业有限公司", "m_name": "", "life": "2", "type": "1", "cu_status": "1", "owner": "M9", "city": "泰州市", "state": "10", "district": "", "creatdate": "2024-01-01", "moddate": "2026-01-01", "contact": []},
+             {"id": "42", "sn": "", "cu_name": "常州合全药业有限公司", "m_name": "", "life": "2", "type": "1", "cu_status": "1", "owner": "M9", "city": "常州市", "state": "10", "district": "", "creatdate": "2024-01-01", "moddate": "2026-01-01", "contact": []},
+             {"id": "43", "sn": "", "cu_name": "上海药明生物技术有限公司", "m_name": "", "life": "2", "type": "1", "cu_status": "1", "owner": "M9", "city": "上海市", "state": "9", "district": "", "creatdate": "2024-01-01", "moddate": "2026-01-01", "contact": []}]
+    orders = [{"id": "201", "No.": f"mw{y}0501201", "subject": "泰兴", "cu_sn": "[id:41]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "3000.00", "who": "王勇尊", "date": f"{y}-05-01", "end_date": f"{y}-05-01", "money_type": "RMB",
+               "goods": [{"id": "2011", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": "3000", "sum": "3000.00"}]},
+              {"id": "202", "No.": f"mw{y}0502202", "subject": "常州", "cu_sn": "[id:42]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "2500.00", "who": "王勇尊", "date": f"{y}-05-02", "end_date": f"{y}-05-02", "money_type": "RMB",
+               "goods": [{"id": "2021", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": "2500", "sum": "2500.00"}]},
+              {"id": "203", "No.": f"mw{y}0503203", "subject": "药明生物", "cu_sn": "[id:43]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": "4000.00", "who": "王勇尊", "date": f"{y}-05-03", "end_date": f"{y}-05-03", "money_type": "RMB",
+               "goods": [{"id": "2031", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": "4000", "sum": "4000.00"}]}]
+    store.upsert_raw("customer", custs)
+    store.upsert_normalized(SPEC_BY_DT["customer"], custs)
+    store.upsert_raw("contract", orders)
+    store.upsert_normalized(SPEC_BY_DT["contract"], orders)
+    store.close()
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    before = query(by="customer", years=THIS_YEAR).sales()
+    assert not any(r.get("members") for r in before["rows"]) and lk.customer("[id:41]").get("group") is None
+    (tmp_path / "customer_groups.json").write_text(_json.dumps([{"name": "药明康德", "patterns": ["合全", "药明康德"]}], ensure_ascii=False), encoding="utf-8")
+    mirror.groups.refresh(force=True)
+    assert lk.customer("[id:41]")["group"] == "药明康德" and lk.customer("[id:43]").get("group") is None   # 药明生物不含“合全 / 药明康德”
+    res = query(by="customer", years=THIS_YEAR).sales()
+    grp = next(r for r in res["rows"] if r.get("members"))
+    assert grp["key"] == "group:药明康德" and grp["name"] == "药明康德" and grp["total"] == 5500.0 and grp["count"] == 2
+    assert [m["name"] for m in grp["members"]] == ["泰兴合全药业有限公司", "常州合全药业有限公司"] and sorted(grp["customer_ids"]) == [41, 42]
+    assert grp["cells"][str(THIS_YEAR)]["amount"] == 5500.0 and grp["sub"].startswith("集团 · 2 家")
+    assert res["rows"][0]["key"] == "group:药明康德"                                  # 5500 > 药明生物 4000，按集团合计排
+    assert not any(r["name"] in ("泰兴合全药业有限公司", "常州合全药业有限公司") for r in res["rows"])
+    # 多客户 id 下钻与看订单
+    assert query(customer_id="41,42").orders()["total"] == 2 and query(customer_id="41").orders()["total"] == 1
+    assert query(by="product", years=THIS_YEAR, customer_id="41,42").sales()["filters"]["customer_id"] == "药明康德（2 家）"
+    # 规则接口与导出（成员行带 └ 前缀）
+    g = query().customer_groups()["rows"][0]
+    assert g["name"] == "药明康德" and sorted(m["id"] for m in g["members"]) == [41, 42]   # 成员按名称排
+    from web.export import _sales_sheet
+    _, sheet = _sales_sheet(res)
+    assert sheet[0][0] == "药明康德" and sheet[1][0] == "└ 泰兴合全药业有限公司" and sheet[2][0] == "└ 常州合全药业有限公司"

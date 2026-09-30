@@ -132,13 +132,19 @@ def _sales_sheet(res: Dict[str, Any]) -> Tuple[Sequence[str], List[List[Any]]]:
         headers += [f"{y} 金额", f"{y} 单数"] + ([f"{y} 数量"] if line else [])
     headers += ["合计", "同比%"]
     rows = []
-    for r in res["rows"]:
-        row: List[Any] = [r.get("name"), r.get("sub")]
+
+    def line_of(r: Dict[str, Any], indent: str = "") -> List[Any]:
+        row: List[Any] = [indent + str(r.get("name") or ""), r.get("sub")]
         for y in years:
             c = r["cells"].get(y) or {}
             row += [_num(c.get("amount", 0)), c.get("count", 0)] + ([_num(c.get("qty", 0))] if line else [])
         row += [_num(r.get("total")), _num(r.get("yoy"))]
-        rows.append(row)
+        return row
+
+    for r in res["rows"]:
+        rows.append(line_of(r))
+        for m in r.get("members") or []:      # 集团行下面跟成员行（名称前缀“└ ”）
+            rows.append(line_of(m, "└ "))
     return headers, rows
 
 
