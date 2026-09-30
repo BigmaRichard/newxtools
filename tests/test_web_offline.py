@@ -1034,7 +1034,7 @@ def test_customer_groups_merge_in_sales(tmp_path):
     grp = next(r for r in res["rows"] if r.get("members"))
     assert grp["key"] == "group:药明康德" and grp["name"] == "药明康德" and grp["total"] == 5500.0 and grp["count"] == 2
     assert [m["name"] for m in grp["members"]] == ["泰兴合全药业有限公司", "常州合全药业有限公司"] and sorted(grp["customer_ids"]) == [41, 42]
-    assert grp["cells"][str(THIS_YEAR)]["amount"] == 5500.0 and grp["sub"].startswith("集团 · 2 家")
+    assert grp["cells"][str(THIS_YEAR)]["amount"] == 5500.0 and grp["sub"] == "集团 · 2 家：泰兴合全药业有限公司、常州合全药业有限公司"
     assert res["rows"][0]["key"] == "group:药明康德"                                  # 5500 > 药明生物 4000，按集团合计排
     assert not any(r["name"] in ("泰兴合全药业有限公司", "常州合全药业有限公司") for r in res["rows"])
     # 多客户 id 下钻与看订单
@@ -1046,3 +1046,13 @@ def test_customer_groups_merge_in_sales(tmp_path):
     from web.export import _sales_sheet
     _, sheet = _sales_sheet(res)
     assert sheet[0][0] == "药明康德" and sheet[1][0] == "└ 泰兴合全药业有限公司" and sheet[2][0] == "└ 常州合全药业有限公司"
+
+
+def test_group_note_caps_member_names():
+    """集团行小字：成员名清单最长 25 个字符，超出截断加“…”；家数照实。"""
+    from web.reports import GROUP_NOTE_CHARS, group_note
+    assert GROUP_NOTE_CHARS == 25
+    assert group_note(["泰兴合全药业有限公司", "常州合全药业有限公司"]) == "集团 · 2 家：泰兴合全药业有限公司、常州合全药业有限公司"
+    note = group_note(["四川科伦药业股份有限公司邛崃分公司", "四川科伦药物研究院有限公司", "四川科伦药业股份有限公司邛崃分公司-色谱柱"])
+    assert note == "集团 · 3 家：四川科伦药业股份有限公司邛崃分公司、四川科伦药物研…" and len(note.split("：", 1)[1]) == GROUP_NOTE_CHARS + 1
+    assert group_note(["甲" * 24, "乙"]) == "集团 · 2 家：" + "甲" * 24 + "…"      # 截断点落在“、”上时不留顿号

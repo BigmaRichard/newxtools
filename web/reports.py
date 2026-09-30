@@ -23,6 +23,7 @@ ORDER_RMB_EXPR = "(CASE WHEN COALESCE(o.money_type,'') IN ('', 'RMB') OR COALESC
 CID_EXPR = ("CASE WHEN {t}.cu_sn LIKE '[id:%]' THEN CAST(substr({t}.cu_sn, 5, length({t}.cu_sn) - 5) AS INTEGER) "
             "ELSE (SELECT s.id FROM customer s WHERE s.sn = {t}.cu_sn AND s.sn <> '' LIMIT 1) END")
 SALES_DIMS = ("who", "customer", "product", "class", "group", "region", "type", "month")
+GROUP_NOTE_CHARS = 25   # 集团行小字里成员名清单最长字符数，超出以“…”截断（避免过长）
 # 订单明细 / 采购明细里的产品引用：产品编号 sn，或产品没有编号时为 "[id:N]"；统一按 product.id 关联
 PRODUCT_KEY = "(CASE WHEN {g}.prod LIKE '[id:%]' THEN CAST(substr({g}.prod, 5, length({g}.prod) - 5) AS INTEGER) ELSE (SELECT s.id FROM product s WHERE s.sn = {g}.prod AND s.sn <> '' LIMIT 1) END)"
 PRODUCT_JOIN = "LEFT JOIN product p ON p.id = " + PRODUCT_KEY.format(g="g")
@@ -31,6 +32,14 @@ PACK_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(kg|g|mg|t|L|ml)\s*(?:[/／]\s*([^\s/�
 UNIT_ALIAS = {"kg": "kg", "g": "g", "mg": "mg", "t": "t", "l": "L", "ml": "mL"}
 # 这些分类的产品按重量计（CRM 未填单位时默认公斤）
 BULK_CLASS_HINTS = ("填料", "介质", "凝胶", "树脂")
+
+
+def group_note(names: List[str]) -> str:
+    """集团行下的小字：“集团 · N 家：甲、乙…”，成员名清单最长 GROUP_NOTE_CHARS 个字符，超出截断加“…”（成员行、悬停提示仍是全名）。"""
+    text = "、".join(names)
+    if len(text) > GROUP_NOTE_CHARS:
+        text = text[:GROUP_NOTE_CHARS].rstrip("、") + "…"
+    return f"集团 · {len(names)} 家：{text}"
 
 
 def split_sn(sn: Optional[str]) -> Tuple[str, Optional[str]]:
@@ -323,7 +332,7 @@ class ReportQueries:
         for g in out.values():
             if g.get("members"):
                 g["members"].sort(key=lambda r: (-(r["cells"].get(latest, {}).get("amount", 0.0)), -r["total"]))
-                g["sub"] = f"集团 · {len(g['members'])} 家：" + "、".join(m["name"] for m in g["members"][:3]) + ("…" if len(g["members"]) > 3 else "")
+                g["sub"] = group_note([m["name"] for m in g["members"]])
                 prev = str(years[1]) if len(years) > 1 else None
                 for m in g["members"]:
                     cur_a = m["cells"].get(latest, {}).get("amount", 0.0)
