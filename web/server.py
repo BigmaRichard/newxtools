@@ -42,6 +42,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from sync.specs import CONTRACT_CUSTOM_FIELDS
 from sync.store import col_name
 from web.auth import AccessControl
+from web.end_customers import EndCustomerFile, build_map as build_end_map
 from web.export import EXPORT_MAX, Download, build_export
 from web.local import CustomerGroups, SevereExempt
 from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries, _num, display_city
@@ -165,10 +166,12 @@ def _valid_date(value: Any) -> bool:
 class Lookups:
     """内存中的小表：人员、字典、客户对照、产品、字段中文名。"""
 
-    def __init__(self, conn: sqlite3.Connection, exempt: Optional[SevereExempt] = None, groups: Optional[CustomerGroups] = None):
+    def __init__(self, conn: sqlite3.Connection, exempt: Optional[SevereExempt] = None, groups: Optional[CustomerGroups] = None,
+                 end_file: Optional[EndCustomerFile] = None):
         data_dir = Path(conn.execute("PRAGMA database_list").fetchone()[2] or "").parent
         self.exempt = exempt or SevereExempt(data_dir / "severe_exempt.json")
         self.groups = groups or CustomerGroups(data_dir / "customer_groups.json")   # 客户集团归并规则（本地文件，热加载）
+        self.end_file = end_file or EndCustomerFile(data_dir / "end_customers.json")   # 订单最终客户手工对照（本地文件）
         self.users: Dict[str, Dict[str, Any]] = {}
         for r in conn.execute("SELECT part, name, status, dept FROM crm_user WHERE _deleted_at IS NULL ORDER BY id"):
             self.users[r["part"]] = {"part": r["part"], "name": r["name"] or r["part"], "active": str(r["status"]) == "0", "dept": r["dept"]}
@@ -181,7 +184,7 @@ class Lookups:
         self.name_to_part: Dict[str, str] = {u["name"]: part for part, u in self.users.items()}
         self.customers: Dict[int, Dict[str, Any]] = {}
         self.key_to_id: Dict[str, int] = {}
-        for r in conn.execute("SELECT id, sn, cu_name, m_name, owner, life, type, cu_status, city, state, district, address FROM customer WHERE _deleted_at IS NULL"):
+        for r in conn.execute("SELECT id, sn, cu_name, m_name, owner, life, type, industry, cu_status, city, state, district, address FROM customer WHERE _deleted_at IS NULL"):
             self.customers[r["id"]] = dict(r)
             if r["sn"]:
                 self.key_to_id[r["sn"]] = r["id"]
@@ -210,6 +213,10 @@ class Lookups:
                 self.visit_log.setdefault(cid, []).append((r["date"], is_visit(r["type"], r["subject"], r["content"])))
         for log in self.visit_log.values():
             log.sort()
+        # 订单最终客户（经代理商购买的终端客户）：订单 id → (客户 id, 来源)；见 web/end_customers.py
+        self.end_of, self.agents = build_end_map(
+            self.customers, self.end_file,
+            (dict(r) for r in conn.execute("SELECT id, no_, cu_sn, memo, addr FROM contract WHERE _deleted_at IS NULL")), self.customer_id)
         self._load_product_classes(conn)
         self._load_states()
         self.loaded_at = time.time()
@@ -452,6 +459,25 @@ class Lookups:
             out["group"] = grp
         return out
 
+    # ---- 最终客户：注册为 SQL 函数 end_cu(o.id, o.cu_sn) / end_cid(o.id, o.cu_sn)，没有最终客户时就是下单客户
+    def end_key(self, order_id: Any, cu_sn: Any) -> Any:
+        hit = self.end_of.get(_int(order_id, 0))
+        return f"[id:{hit[0]}]" if hit else cu_sn
+
+    def end_cid(self, order_id: Any, cu_sn: Any) -> Optional[int]:
+        hit = self.end_of.get(_int(order_id, 0))
+        return hit[0] if hit else self.customer_id(cu_sn)
+
+    def end_customer(self, order_id: Any) -> Optional[Dict[str, Any]]:
+        hit = self.end_of.get(_int(order_id, 0))
+        if not hit:
+            return None
+        return {**(self.customer(f"[id:{hit[0]}]") or {}), "source": hit[1]}
+
+    def register_sql(self, conn: sqlite3.Connection) -> None:
+        conn.create_function("end_cu", 2, self.end_key, deterministic=True)
+        conn.create_function("end_cid", 2, self.end_cid, deterministic=True)
+
     def group_of(self, cid: Any) -> Optional[str]:
         c = self.customers.get(_int(cid, 0))
         return self.groups.group_of(cid, (c or {}).get("cu_name") or (c or {}).get("m_name") or "") if c else None
@@ -492,6 +518,7 @@ class Mirror:
         self.path = Path(path)
         self.exempt = SevereExempt(self.path.parent / "severe_exempt.json")   # 严重逾期标记的手工解除名单（本地文件，热加载）
         self.groups = CustomerGroups(self.path.parent / "customer_groups.json")   # 客户集团归并规则（本地文件，热加载）
+        self.end_file = EndCustomerFile(self.path.parent / "end_customers.json")   # 订单最终客户手工对照（本地文件，改动后重建对照表）
         self._lock = threading.Lock()
         self._lookups: Optional[Lookups] = None
         self._stamp: Any = None
@@ -512,10 +539,10 @@ class Mirror:
             now = time.time()
             if self._lookups is None or now - self._checked > 20:
                 self._checked = now
-                stamp = self.stamp(conn)
+                stamp = (self.stamp(conn), self.end_file.signature())
                 if self._lookups is None or stamp != self._stamp:
                     t0 = time.time()
-                    self._lookups = Lookups(conn, self.exempt, self.groups)
+                    self._lookups = Lookups(conn, self.exempt, self.groups, self.end_file)
                     self._stamp = stamp
                     logger.info("已加载对照表：客户 %d、人员 %d、产品 %d（%.2fs）", len(self._lookups.customers), len(self._lookups.users),
                                 len(self._lookups.products), time.time() - t0)
@@ -531,10 +558,18 @@ class Query(ReportQueries):
         self.lk = lk
         self.p = params
         self.today = dt.date.today()
+        lk.register_sql(conn)
 
     # ---- 参数
     def get(self, name: str, default: str = "") -> str:
         return (self.p.get(name) or default).strip()
+
+    def end_mode(self) -> bool:
+        """按最终客户统计（缺省开）：经代理商的订单算到终端客户名下；end=0 时按下单客户。"""
+        return self.get("end", "1") not in ("0", "off", "false")
+
+    def cust_col(self, alias: str) -> str:
+        return f"end_cu({alias}.id, {alias}.cu_sn)" if self.end_mode() else f"{alias}.cu_sn"
 
     def page(self) -> Tuple[int, int, int]:
         size = min(max(_int(self.get("size"), 50), 1), self.max_size)
@@ -552,12 +587,19 @@ class Query(ReportQueries):
         """customer_id 参数：单个 id，或逗号分隔的多个（集团归并后的一组客户）。"""
         return [c for c in (_int(x, 0) for x in (self.get("customer_id") or "").split(",")) if c]
 
-    def customer_clause(self, alias: str, clauses: List[str], args: List[Any], numeric_is_id: bool = False) -> None:
+    def customer_clause(self, alias: str, clauses: List[str], args: List[Any], numeric_is_id: bool = False, col: Optional[str] = None,
+                        or_end: bool = False) -> None:
+        """col：参与比较的客户列（缺省 alias.cu_sn）；or_end：订单表上同时匹配最终客户（看某客户的订单时，经代理商买的也列出）。"""
         cids = self.customer_ids()
         if cids:
             keys = [str(c) for c in cids] if numeric_is_id else [k for c in cids for k in self.customer_keys(c)]
-            clauses.append(f"{alias}.cu_sn IN ({','.join('?' * len(keys))})")
-            args.extend(keys)
+            marks = ",".join("?" * len(keys))
+            if or_end:
+                clauses.append(f"({alias}.cu_sn IN ({marks}) OR end_cu({alias}.id, {alias}.cu_sn) IN ({marks}))")
+                args.extend(keys + keys)
+            else:
+                clauses.append(f"{col or alias + '.cu_sn'} IN ({marks})")
+                args.extend(keys)
 
     def name_search_clause(self, alias: str, q: str, args: List[Any]) -> str:
         like = f"%{q}%"
@@ -639,8 +681,8 @@ class Query(ReportQueries):
                 d = monthly.get(key, {})
                 series.append({"month": key, "orders": d.get("orders", {"count": 0, "amount": 0.0}), "receipts": d.get("receipts", {"count": 0, "amount": 0.0})})
         top_customers = [
-            {"customer": self.lk.customer(r["cu_sn"]), "count": r["n"], "amount": money(r["a"])}
-            for r in self.rows(f"SELECT o.cu_sn, COUNT(*) n, SUM(CAST(o.sum AS REAL)) a {base} AND o.date >= ? AND o.date < ? GROUP BY o.cu_sn ORDER BY a DESC LIMIT 10", [CANCELLED, y_from, y_to])
+            {"customer": self.lk.customer(r["k"]), "count": r["n"], "amount": money(r["a"])}
+            for r in self.rows(f"SELECT {self.cust_col('o')} k, COUNT(*) n, SUM(CAST(o.sum AS REAL)) a {base} AND o.date >= ? AND o.date < ? GROUP BY k ORDER BY a DESC LIMIT 10", [CANCELLED, y_from, y_to])
         ]
         top_sales = [
             {"name": r["who"], "count": r["n"], "amount": money(r["a"])}
@@ -691,7 +733,8 @@ class Query(ReportQueries):
     def order_row(self, r: Dict[str, Any]) -> Dict[str, Any]:
         row = {
             "id": r["id"], "no": r.get("no_"), "date": r.get("date"), "end_date": r.get("end_date"), "subject": r.get("subject"),
-            "customer": self.lk.customer(r.get("cu_sn")), "amount": money(r.get("sum")), "money_type": r.get("money_type") or "RMB",
+            "customer": self.lk.customer(r.get("cu_sn")), "end_customer": self.lk.end_customer(r["id"]),
+            "amount": money(r.get("sum")), "money_type": r.get("money_type") or "RMB",
             "status": r.get("status"), "status_text": self.lk.text("contract", "status", r.get("status")),
             "confirm_text": self.lk.text("contract", "confirm", r.get("confirm")),
             "st_send": r.get("st_send"), "st_send_text": self.lk.text("contract", "st_send", r.get("st_send")),
@@ -711,7 +754,7 @@ class Query(ReportQueries):
         if q:
             args.extend([f"%{q}%", f"%{q}%"])
             clauses.append(f"(o.no_ LIKE ? OR o.subject LIKE ? OR {self.name_search_clause('o', q, args)})")
-        self.customer_clause("o", clauses, args)
+        self.customer_clause("o", clauses, args, or_end=True)
         if self.get("who"):
             clauses.append("o.who = ?")
             args.append(self.lk.part_to_name(self.get("who")))
@@ -922,17 +965,28 @@ class Query(ReportQueries):
              "email": k.get("email"), "weixin": k.get("weixin"), "remark": k.get("remark")}
             for k in self.rows("SELECT * FROM contact WHERE customer_id = ? ORDER BY _seq", [cid])
         ]
-        orders = [self.order_row(r) for r in self.enrich_orders(self.rows(f"{self.ORDER_SELECT} WHERE o._deleted_at IS NULL AND o.cu_sn IN ({marks}) ORDER BY o.date DESC, o.id DESC LIMIT 50", keys))]
+        # 订单含经代理商买的（最终客户是本客户）；年度汇总按最终客户口径
+        own_or_end = f"(o.cu_sn IN ({marks}) OR end_cu(o.id, o.cu_sn) IN ({marks}))"
+        orders = [self.order_row(r) for r in self.enrich_orders(self.rows(f"{self.ORDER_SELECT} WHERE o._deleted_at IS NULL AND {own_or_end} ORDER BY o.date DESC, o.id DESC LIMIT 50", keys + keys))]
         receipts = [self.receipt_row(x) for x in self.rows(f"SELECT * FROM gathering_note WHERE _deleted_at IS NULL AND cu_sn IN ({marks}) ORDER BY date DESC, id DESC LIMIT 50", keys)]
         plans = [self.plan_row(x) for x in self.rows(f"SELECT * FROM gathering WHERE _deleted_at IS NULL AND status IN ('2','4') AND cu_sn IN ({marks}) ORDER BY date", keys)]
         actions = [self.action_row(a) for a in self.enrich_actions(self.rows(
             f"SELECT a.*, k.name AS contact_name FROM action a LEFT JOIN contact k ON k.id = CAST(a.con_id AS INTEGER) WHERE a._deleted_at IS NULL AND a.cu_sn IN ({marks}) ORDER BY a.date DESC, a.id DESC LIMIT 50", keys))]
         yearly = [
             {"year": r["y"], "count": r["n"], "amount": money(r["a"])}
-            for r in self.rows(f"SELECT substr(date,1,4) y, COUNT(*) n, SUM(CAST(sum AS REAL)) a FROM contract WHERE _deleted_at IS NULL AND status <> '3' AND cu_sn IN ({marks}) GROUP BY y ORDER BY y", keys)
+            for r in self.rows(f"SELECT substr(o.date,1,4) y, COUNT(*) n, SUM(CAST(o.sum AS REAL)) a FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '3' "
+                               f"AND end_cu(o.id, o.cu_sn) IN ({marks}) GROUP BY y ORDER BY y", keys)
         ]
+        # 经代理商买的（按代理商汇总）与本客户作为代理商卖给别人的
+        via = [{"agent": self.lk.customer(r["cu_sn"]), "count": r["n"], "amount": money(r["a"]), "last_date": r["d"]} for r in self.rows(
+            f"SELECT o.cu_sn, COUNT(*) n, SUM({ORDER_RMB_EXPR}) a, MAX(o.date) d FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '3' "
+            f"AND end_cu(o.id, o.cu_sn) IN ({marks}) AND o.cu_sn NOT IN ({marks}) GROUP BY o.cu_sn ORDER BY a DESC", keys + keys)]
+        resold = [{"customer": self.lk.customer(r["k"]), "count": r["n"], "amount": money(r["a"]), "last_date": r["d"]} for r in self.rows(
+            f"SELECT end_cu(o.id, o.cu_sn) k, COUNT(*) n, SUM({ORDER_RMB_EXPR}) a, MAX(o.date) d FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '3' "
+            f"AND o.cu_sn IN ({marks}) AND end_cu(o.id, o.cu_sn) NOT IN ({marks}) GROUP BY k ORDER BY a DESC LIMIT 30", keys + keys)]
         extras = self.raw_extras("customer", cid, set(c.keys()) | {"contact", "cu_name", "m_name", "sn", "owner", "life", "type", "cu_status", "city", "district", "state", "industry", "creatdate", "moddate", "tel", "address"})
-        return {"customer": self.customer_row(c), "contacts": contacts, "orders": orders, "receipts": receipts, "open_plans": plans, "actions": actions, "yearly": yearly, "extras": extras}
+        return {"customer": self.customer_row(c), "contacts": contacts, "orders": orders, "receipts": receipts, "open_plans": plans, "actions": actions, "yearly": yearly,
+                "via_agents": via, "resold_to": resold, "is_agent": cid in self.lk.agents, "extras": extras}
 
     # ---- 应收（计划回款）
     def plan_row(self, g: Dict[str, Any]) -> Dict[str, Any]:

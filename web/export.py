@@ -41,6 +41,7 @@ def _join(value: Any) -> str:
 
 ORDER_COLS: List[Col] = [
     ("日期", lambda r: r.get("date")), ("单号", lambda r: r.get("no")), ("客户", _cust()), ("客户ID", lambda r: (r.get("customer") or {}).get("id")),
+    ("最终客户", _cust("end_customer")), ("最终客户ID", lambda r: (r.get("end_customer") or {}).get("id")), ("最终客户依据", lambda r: (r.get("end_customer") or {}).get("source")),
     ("主题", lambda r: r.get("subject")), ("金额", lambda r: _num(r.get("amount"))), ("币种", lambda r: r.get("money_type")), ("已回款", lambda r: _num(r.get("received"))),
     ("状态", lambda r: r.get("status_text")), ("审批", lambda r: r.get("confirm_text")), ("发货状态", lambda r: r.get("st_send_text")), ("发货单数", lambda r: r.get("shipments")),
     ("业务员", lambda r: r.get("who")), ("类型", lambda r: r.get("type_text")), ("付款", lambda r: r.get("payment_text")), ("付款模式", lambda r: r.get("pay_mode_text")),
@@ -131,6 +132,9 @@ def _sales_sheet(res: Dict[str, Any]) -> Tuple[Sequence[str], List[List[Any]]]:
     for y in years:
         headers += [f"{y} 金额", f"{y} 单数"] + ([f"{y} 数量"] if line else [])
     headers += ["合计", "同比%"]
+    via = res.get("by") == "customer" and res.get("end")
+    if via:
+        headers.append("经代理商")
     rows = []
 
     def line_of(r: Dict[str, Any], indent: str = "") -> List[Any]:
@@ -139,6 +143,8 @@ def _sales_sheet(res: Dict[str, Any]) -> Tuple[Sequence[str], List[List[Any]]]:
             c = r["cells"].get(y) or {}
             row += [_num(c.get("amount", 0)), c.get("count", 0)] + ([_num(c.get("qty", 0))] if line else [])
         row += [_num(r.get("total")), _num(r.get("yoy"))]
+        if via:
+            row.append("、".join(f"{v['name']} {v['amount']:,.0f}" for v in r.get("via") or []))
         return row
 
     for r in res["rows"]:

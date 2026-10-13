@@ -1056,3 +1056,69 @@ def test_group_note_caps_member_names():
     note = group_note(["四川科伦药业股份有限公司邛崃分公司", "四川科伦药物研究院有限公司", "四川科伦药业股份有限公司邛崃分公司-色谱柱"])
     assert note == "集团 · 3 家：四川科伦药业股份有限公司邛崃分公司、四川科伦药物研…" and len(note.split("：", 1)[1]) == GROUP_NOTE_CHARS + 1
     assert group_note(["甲" * 24, "乙"]) == "集团 · 2 家：" + "甲" * 24 + "…"      # 截断点落在“、”上时不留顿号
+
+
+def test_end_customer_attribution(tmp_path):
+    """最终客户：备注“终端客户：…”、代理商订单的收货地址、手工对照（含压掉误判与补代理商名单）；销售分析 / 订单 / 客户抽屉按最终客户统计。"""
+    import json as _json
+    from web.end_customers import name_core
+    assert name_core("上海皓元医药股份有限公司") == "皓元医药" and name_core("上海皓元-色谱柱") == "上海皓元"
+    assert name_core("深圳职业技术学院") == "深圳职业技术学院" and name_core("广东省药检所") == "广东省药检所"
+    path = tmp_path / "end.sqlite"
+    store = Store(path)
+    seed(store)
+    y = str(THIS_YEAR)
+    base = {"sn": "", "m_name": "", "life": "2", "cu_status": "1", "owner": "M9", "city": "上海市", "state": "9", "district": "", "creatdate": "2024-01-01", "moddate": "2026-01-01", "contact": []}
+    custs = [{**base, "id": "51", "cu_name": "上海皓元医药股份有限公司", "type": "1"},
+             {**base, "id": "52", "cu_name": "上海屹飏贸易有限公司", "type": "1"},                 # CRM 未标代理商，靠 agents 名单
+             {**base, "id": "53", "cu_name": "英莱克科技有限公司", "type": "4"},                   # 类型 = 代理商
+             {**base, "id": "54", "cu_name": "华北制药华胜有限公司", "type": "1", "city": "石家庄市", "state": "3"},
+             {**base, "id": "55", "cu_name": "广州纳泰生物", "type": "1", "city": "广州市", "state": "6"}]
+
+    def order(oid, cu, total, memo="", addr=""):
+        return {"id": oid, "No.": f"mw{y}06{oid}", "subject": "色谱柱", "cu_sn": f"[id:{cu}]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": total,
+                "who": "王勇尊", "date": f"{y}-06-01", "end_date": f"{y}-06-01", "money_type": "RMB", "memo": memo, "addr": addr,
+                "goods": [{"id": f"{oid}1", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": total, "sum": total}]}
+    orders = [order("301", 51, "1000.00"),
+              order("302", 52, "2000.00", addr="上海市浦东新区蔡伦路 上海皓元医药股份有限公司 张工"),     # 屹飏 → 皓元（地址）
+              order("303", 53, "3000.00", memo="终端客户：华北制药华胜"),                                   # 英莱克 → 华胜（备注）
+              order("304", 53, "4000.00", addr="北京中科纳泰生物 房山区"),                                  # 地址误配纳泰，手工压掉
+              order("305", 52, "500.00", addr="屹飏自己仓库")]                                             # 认不出：仍算屹飏
+    store.upsert_raw("customer", custs)
+    store.upsert_normalized(SPEC_BY_DT["customer"], custs)
+    store.upsert_raw("contract", orders)
+    store.upsert_normalized(SPEC_BY_DT["contract"], orders)
+    store.close()
+    (tmp_path / "end_customers.json").write_text(_json.dumps({"agents": [52], "orders": [{"order": f"mw{y}06304", "customer_id": 0, "note": "中科纳泰"}]}, ensure_ascii=False), encoding="utf-8")
+    mirror = Mirror(path)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    assert lk.end_of == {302: (51, "收货地址"), 303: (54, "备注：华北制药华胜")} and {52, 53} <= lk.agents
+    res = query(by="customer", years=THIS_YEAR).sales()
+    row = {r["id"]: r for r in res["rows"] if r.get("id") in (51, 52, 53, 54)}
+    assert row[51]["total"] == 3000.0 and row[51]["count"] == 2 and row[51]["via"] == [{"name": "上海屹飏贸易有限公司", "count": 1, "amount": 2000.0}]
+    assert row[54]["total"] == 3000.0 and row[52]["total"] == 500.0 and row[53]["total"] == 4000.0 and "via" not in row[53]
+    off = {r["id"]: r for r in query(by="customer", years=THIS_YEAR, end=0).sales()["rows"] if r.get("id")}
+    assert off[51]["total"] == 1000.0 and off[52]["total"] == 2500.0 and 54 not in off and not res["totals"] != query(by="customer", years=THIS_YEAR, end=0).sales()["totals"]
+    # 按客户筛选：销售分析按最终客户；订单列表同时列出下单的与最终客户是它的
+    assert query(by="product", years=THIS_YEAR, customer_id=51).sales()["totals"][y]["amount"] == 3000.0
+    od = {o["id"]: o for o in query(customer_id=51).orders()["rows"]}
+    assert set(od) == {301, 302} and od[302]["end_customer"]["id"] == 51 and od[302]["end_customer"]["source"] == "收货地址" and od[301]["end_customer"] is None
+    assert {o["id"] for o in query(customer_id=52).orders()["rows"]} == {302, 305}
+    # 客户抽屉：终端客户看到经哪个代理商买的；代理商看到替谁下的单
+    d = query().customer_detail(51)
+    assert [v["agent"]["id"] for v in d["via_agents"]] == [52] and {o["id"] for o in d["orders"]} == {301, 302} and d["yearly"][-1]["amount"] == 3000.0
+    a = query().customer_detail(53)
+    assert a["is_agent"] and [v["customer"]["id"] for v in a["resold_to"]] == [54] and a["yearly"][-1]["amount"] == 4000.0
+    # 导出列与销售表“经代理商”列
+    from web.export import ORDER_COLS, _sales_sheet
+    assert [h for h, _ in ORDER_COLS][4:7] == ["最终客户", "最终客户ID", "最终客户依据"]
+    headers, sheet = _sales_sheet(res)
+    assert headers[-1] == "经代理商" and any(r[0] == "上海皓元医药股份有限公司" and r[-1] == "上海屹飏贸易有限公司 2,000" for r in sheet)
+    # 手工对照热加载：改文件后重建
+    (tmp_path / "end_customers.json").write_text(_json.dumps({"agents": [52], "orders": [{"order": f"mw{y}06305", "customer_id": 51}]}, ensure_ascii=False), encoding="utf-8")
+    mirror._checked = 0
+    lk2 = mirror.lookups(conn)
+    assert lk2 is not lk and lk2.end_of[305] == (51, "手工") and lk2.end_of[304] == (55, "收货地址")

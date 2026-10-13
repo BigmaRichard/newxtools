@@ -165,16 +165,17 @@ class ReportQueries:
         if who:
             clauses.append(f"{alias}.who = ?")
             args.append(self.lk.part_to_name(who))
-        self.customer_clause(alias, clauses, args)
+        col = self.cust_col(alias)      # 客户、地区、所有者都按最终客户（end=0 时按下单客户）
+        self.customer_clause(alias, clauses, args, col=col)
         if self.get("type"):
             clauses.append(f"{alias}.type = ?")
             args.append(self.get("type"))
         if self.get("state"):
             args.extend([self.get("state"), self.get("state")])
-            clauses.append(f"({alias}.cu_sn IN (SELECT '[id:' || id || ']' FROM customer WHERE state = ?) OR {alias}.cu_sn IN (SELECT sn FROM customer WHERE sn <> '' AND state = ?))")
+            clauses.append(f"({col} IN (SELECT '[id:' || id || ']' FROM customer WHERE state = ?) OR {col} IN (SELECT sn FROM customer WHERE sn <> '' AND state = ?))")
         if self.get("owner"):
             args.extend([self.get("owner"), self.get("owner")])
-            clauses.append(f"({alias}.cu_sn IN (SELECT '[id:' || id || ']' FROM customer WHERE owner = ?) OR {alias}.cu_sn IN (SELECT sn FROM customer WHERE sn <> '' AND owner = ?))")
+            clauses.append(f"({col} IN (SELECT '[id:' || id || ']' FROM customer WHERE owner = ?) OR {col} IN (SELECT sn FROM customer WHERE sn <> '' AND owner = ?))")
         if self.get("month"):
             clauses.append(f"substr({alias}.date, 1, 7) = ?")
             args.append(self.get("month")[:7])
@@ -225,12 +226,16 @@ class ReportQueries:
         where = " WHERE " + " AND ".join(clauses)
         if line_mode:
             base = f"FROM contract_goods g JOIN contract o ON o.id = g.contract_id {PRODUCT_JOIN}" + where
-            agg = "COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q"
+            amt = "CAST(g.sum AS REAL)"
+            agg = f"COUNT(DISTINCT o.id) n, SUM({amt}) a, SUM(CAST(g.amount AS REAL)) q"
         else:
             base = "FROM contract o" + where
-            agg = f"COUNT(*) n, SUM({ORDER_RMB_EXPR}) a, NULL q"
+            amt = ORDER_RMB_EXPR
+            agg = f"COUNT(*) n, SUM({amt}) a, NULL q"
+        end = self.end_mode()
+        cust_sql = self.cust_col("o")
         dim_sql = {
-            "who": "o.who", "customer": "o.cu_sn", "region": "o.cu_sn", "type": "o.type", "month": "substr(o.date, 6, 2)",
+            "who": "o.who", "customer": cust_sql, "region": cust_sql, "type": "o.type", "month": "substr(o.date, 6, 2)",
             "product": "COALESCE(NULLIF(p.name, ''), NULLIF(g.prod_name, ''), g.prod)",   # 产品维度 = 型号（同型号各批号合并）
             "class": "COALESCE(p.class, '')", "group": "COALESCE(p.class, '')",
         }[by]
@@ -285,6 +290,15 @@ class ReportQueries:
                     totals[y]["count"] += cell["count"]
                     totals[y]["amount"] = round(totals[y]["amount"] + cell["amount"], 2)
                     totals[y]["qty"] = round(totals[y]["qty"] + cell["qty"], 3)
+        if by == "customer" and end:   # 经代理商买的部分：哪个代理商、多少（所选年份合计）
+            for r in self.rows(f"SELECT {cust_sql} k, o.cu_sn agent, COUNT(DISTINCT o.id) n, SUM({amt}) a {base} AND {cust_sql} <> o.cu_sn GROUP BY k, agent", args):
+                c = self.lk.customer(r["k"]) or {}
+                row = rows.get(c.get("id") if c.get("id") is not None else f"?{r['k']}")
+                if row is not None:
+                    row.setdefault("via", []).append({"name": (self.lk.customer(r["agent"]) or {}).get("name") or str(r["agent"]), "count": r["n"] or 0, "amount": money(r["a"])})
+            for row in rows.values():
+                if row.get("via"):
+                    row["via"].sort(key=lambda v: -v["amount"])
         if by == "customer":   # 集团归并：同一集团的客户合成一行（成员挂在 members 下，前端可展开），按集团合计排序
             rows = self._merge_customer_groups(rows, years)
         if by == "month":
@@ -298,7 +312,7 @@ class ReportQueries:
             row["yoy"] = round((cur_a - prev_a) / abs(prev_a) * 100, 1) if prev_a else None
         monthly = self._sales_monthly(base, args, years) if by != "month" else None
         return {
-            "by": by, "years": years, "ytd": ytd, "line_mode": line_mode, "total_rows": len(ordered),
+            "by": by, "years": years, "ytd": ytd, "end": end, "line_mode": line_mode, "total_rows": len(ordered),
             "rows": ordered[:limit], "totals": totals,
             "monthly": monthly if monthly is not None else [{"month": r["key"], "cells": r["cells"]} for r in ordered],
             "filters": self._sales_filter_labels(),
@@ -321,6 +335,13 @@ class ReportQueries:
                 out[gkey] = g
             g["members"].append(row)
             g["customer_ids"].append(cust["id"])
+            for v in row.get("via") or []:
+                gv = next((x for x in g.setdefault("via", []) if x["name"] == v["name"]), None)
+                if gv is None:
+                    g["via"].append(dict(v))
+                else:
+                    gv["count"] += v["count"]
+                    gv["amount"] = round(gv["amount"] + v["amount"], 2)
             g["total"] = round(g["total"] + row["total"], 2)
             g["count"] += row["count"]
             for y, cell in row["cells"].items():
@@ -333,6 +354,8 @@ class ReportQueries:
             if g.get("members"):
                 g["members"].sort(key=lambda r: (-(r["cells"].get(latest, {}).get("amount", 0.0)), -r["total"]))
                 g["sub"] = group_note([m["name"] for m in g["members"]])
+                if g.get("via"):
+                    g["via"].sort(key=lambda v: -v["amount"])
                 prev = str(years[1]) if len(years) > 1 else None
                 for m in g["members"]:
                     cur_a = m["cells"].get(latest, {}).get("amount", 0.0)
@@ -384,6 +407,10 @@ class ReportQueries:
             out["month"] = self.get("month")
         return out
 
+    def cid_col(self, alias: str) -> str:
+        """订单归属的客户 id：按最终客户（缺省）或下单客户（end=0）。"""
+        return f"end_cid({alias}.id, {alias}.cu_sn)" if self.end_mode() else CID_EXPR.format(t=alias)
+
     # ------------------------------------------------------------------ 客户分析
     def _customer_facts(self, year: int) -> List[Dict[str, Any]]:
         """每个客户的订单事实：首单 / 末单日期、历史单数与金额、本年与上年单数与金额。"""
@@ -392,7 +419,7 @@ class ReportQueries:
             SELECT cid, MIN(date) first_date, MAX(date) last_date, COUNT(*) n_all, SUM(amt) a_all,
                    SUM(CASE WHEN date BETWEEN ? AND ? THEN 1 ELSE 0 END) n_y, SUM(CASE WHEN date BETWEEN ? AND ? THEN amt ELSE 0 END) a_y,
                    SUM(CASE WHEN date BETWEEN ? AND ? THEN 1 ELSE 0 END) n_p, SUM(CASE WHEN date BETWEEN ? AND ? THEN amt ELSE 0 END) a_p
-            FROM (SELECT {CID_EXPR.format(t='o')} AS cid, o.date AS date, {ORDER_RMB_EXPR} AS amt
+            FROM (SELECT {self.cid_col('o')} AS cid, o.date AS date, {ORDER_RMB_EXPR} AS amt
                   FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.date LIKE '____-__-__')
             WHERE cid IS NOT NULL GROUP BY cid"""
         return self.rows(sql, [y0, y1, y0, y1, p0, p1, p0, p1])
@@ -536,7 +563,7 @@ class ReportQueries:
             "open_plans": agg(f"SELECT COUNT(*) n, SUM(CAST(money AS REAL)) a FROM gathering WHERE _deleted_at IS NULL AND status {OPEN_PLAN_SQL} AND who = ?", [part]),
             "overdue_plans": agg(f"SELECT COUNT(*) n, SUM(CAST(money AS REAL)) a FROM gathering WHERE _deleted_at IS NULL AND status {OPEN_PLAN_SQL} AND who = ? AND date < ?", [part, self.today.isoformat()]),
             "customers_owned": sum(1 for c in self.lk.customers.values() if str(c.get("owner") or "") == part),
-            "customers_active": (self.one(f"SELECT COUNT(DISTINCT o.cu_sn) n {base_o} AND o.date BETWEEN ? AND ?", [name, y0, y1]) or {}).get("n") or 0,
+            "customers_active": (self.one(f"SELECT COUNT(DISTINCT {self.cust_col('o')}) n {base_o} AND o.date BETWEEN ? AND ?", [name, y0, y1]) or {}).get("n") or 0,
             "customers_new": self._new_customers_won(name, y0, y1),
             "actions": (self.one("SELECT COUNT(*) n FROM action WHERE _deleted_at IS NULL AND (',' || who || ',') LIKE ? AND date BETWEEN ? AND ?", [f"%,{part},%", y0, y1]) or {}).get("n") or 0,
             "actions_month": (self.one("SELECT COUNT(*) n FROM action WHERE _deleted_at IS NULL AND (',' || who || ',') LIKE ? AND substr(date, 1, 7) = ?", [f"%,{part},%", self.today.strftime('%Y-%m')]) or {}).get("n") or 0,
@@ -553,8 +580,8 @@ class ReportQueries:
         for r in self.rows("SELECT substr(date, 1, 7) m, COUNT(*) n FROM action WHERE _deleted_at IS NULL AND (',' || who || ',') LIKE ? AND date BETWEEN ? AND ? GROUP BY m", [f"%,{part},%", y0, y1]):
             if r["m"] in series:
                 series[r["m"]]["actions"] = r["n"]
-        top_customers = [{"customer": self.lk.customer(r["cu_sn"]), "count": r["n"], "amount": money(r["a"])}
-                         for r in self.rows(f"SELECT o.cu_sn, COUNT(*) n, SUM({ORDER_RMB_EXPR}) a {base_o} AND o.date BETWEEN ? AND ? GROUP BY o.cu_sn ORDER BY a DESC LIMIT 10", [name, y0, y1])]
+        top_customers = [{"customer": self.lk.customer(r["k"]), "count": r["n"], "amount": money(r["a"])}
+                         for r in self.rows(f"SELECT {self.cust_col('o')} k, COUNT(*) n, SUM({ORDER_RMB_EXPR}) a {base_o} AND o.date BETWEEN ? AND ? GROUP BY k ORDER BY a DESC LIMIT 10", [name, y0, y1])]
         top_products = []
         for r in self.rows(
             f"SELECT COALESCE(NULLIF(p.name, ''), NULLIF(g.prod_name, ''), g.prod) k, MAX(COALESCE(p.class, '')) pcls, COUNT(DISTINCT g.prod) batches, "
@@ -575,12 +602,12 @@ class ReportQueries:
     def _new_customers_won(self, name: str, y0: str, y1: str) -> int:
         """本年首次下单（全公司口径）且本年向此业务员下过单的客户数。"""
         first_in_year = {r["cid"] for r in self.rows(
-            f"SELECT cid FROM (SELECT {CID_EXPR.format(t='o')} cid, MIN(o.date) d FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.date LIKE '____-__-__' GROUP BY cid) "
+            f"SELECT cid FROM (SELECT {self.cid_col('o')} cid, MIN(o.date) d FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.date LIKE '____-__-__' GROUP BY cid) "
             "WHERE cid IS NOT NULL AND d BETWEEN ? AND ?", [y0, y1])}
         if not first_in_year:
             return 0
         mine = {r["cid"] for r in self.rows(
-            f"SELECT DISTINCT {CID_EXPR.format(t='o')} cid FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.who = ? AND o.date BETWEEN ? AND ?", [name, y0, y1])}
+            f"SELECT DISTINCT {self.cid_col('o')} cid FROM contract o WHERE o._deleted_at IS NULL AND o.status <> '{CANCELLED}' AND o.who = ? AND o.date BETWEEN ? AND ?", [name, y0, y1])}
         return len(first_in_year & mine)
 
     # ------------------------------------------------------------------ 产品与库存
@@ -772,8 +799,8 @@ class ReportQueries:
         m_start = months_back(self.today, 23) + "-01"
         got = {x["m"]: x for x in self.rows(f"SELECT substr(o.date, 1, 7) m, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q {base} AND o.date >= ? GROUP BY m", [*margs, m_start])}
         monthly = [{"month": m, "count": (got.get(m) or {}).get("n") or 0, "amount": money((got.get(m) or {}).get("a")), "qty": round(_num((got.get(m) or {}).get("q")), 3)} for m in month_range(self.today.strftime("%Y-%m"), 24)]
-        top_customers = [{"customer": self.lk.customer(x["cu_sn"]), "count": x["n"], "amount": money(x["a"]), "qty": round(_num(x["q"]), 3), "last_date": x["d"]} for x in self.rows(
-            f"SELECT o.cu_sn, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, MAX(o.date) d {base} GROUP BY o.cu_sn ORDER BY a DESC LIMIT 15", margs)]
+        top_customers = [{"customer": self.lk.customer(x["k"]), "count": x["n"], "amount": money(x["a"]), "qty": round(_num(x["q"]), 3), "last_date": x["d"]} for x in self.rows(
+            f"SELECT {self.cust_col('o')} k, COUNT(DISTINCT o.id) n, SUM(CAST(g.sum AS REAL)) a, SUM(CAST(g.amount AS REAL)) q, MAX(o.date) d {base} GROUP BY k ORDER BY a DESC LIMIT 15", margs)]
         lines, orders = self._recent_order_lines(match, margs)
         purchases, purchase_docs = self._recent_purchase_lines(match.replace("g.prod", "i.prod"), margs)
         # 出库明细里产品用 pid 引用，少数旧单据只填了 prod（编号），两者都匹配

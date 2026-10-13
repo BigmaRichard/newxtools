@@ -522,6 +522,9 @@ const dateFlag = (f, d) => f === 'future'
 // 严重逾期标记：后端在客户对象上给 severe = {days, amount, count, since}（有逾期超过 90 天的未回款计划）
 const severeTag = (c) => c && c.severe ? `<span class="tag severe" title="最久逾期 ${c.severe.days} 天 · 逾期超 90 天的有 ${c.severe.count} 期共 ${fmtMoney(c.severe.amount)} · 最早计划日期 ${esc(c.severe.since)}">严重逾期</span>` : '';
 const custLink = (c) => c ? (c.id ? `<a data-cust="${c.id}">${esc(c.name)}</a>${severeTag(c)}` : esc(c.name) + severeTag(c)) : '<span class="muted">—</span>';
+// 订单的最终客户（经代理商下单时的终端客户；后端 order.end_customer = {id, name, …, source}）
+const endLine = (o) => o.end_customer ? `<div class="muted small" title="依据：${esc(o.end_customer.source || '')}">最终客户 ${custLink(o.end_customer)}</div>` : '';
+const viaLine = (via) => via && via.length ? `<div class="muted small" title="${esc(via.map((v) => `${v.name}：${fmtMoney(v.amount)}（${v.count} 单）`).join('\n'))}">经代理 ${esc(via.slice(0, 3).map((v) => `${v.name} ${fmtWan(v.amount)}`).join('、'))}${via.length > 3 ? ` 等 ${via.length} 家` : ''}</div>` : '';
 // 拜访频度：后端 customer.visits = {visits 累计上门, visits_12m 近一年上门, last_visit, days_since, contacts_12m 近一年电话微信等, logs 日志条数, last_log}；没有日志为 null
 const visitCell = (c) => {
   const v = c.visits;
@@ -732,7 +735,7 @@ async function pageOverview(view, params) {
         </tbody></table>
         <h3>最近订单</h3>
         <table><tbody>
-          ${d.recent_orders.map((o) => `<tr><td class="nowrap">${esc(o.date)}</td><td>${custLink(o.customer)}<div class="muted small ellipsis" style="max-width:260px">${orderLink(o.id, o.no)} · ${esc(o.subject)}</div></td><td class="num">${fmtMoney(o.amount)}</td></tr>`).join('')}
+          ${d.recent_orders.map((o) => `<tr><td class="nowrap">${esc(o.date)}</td><td>${custLink(o.customer)}${endLine(o)}<div class="muted small ellipsis" style="max-width:260px">${orderLink(o.id, o.no)} · ${esc(o.subject)}</div></td><td class="num">${fmtMoney(o.amount)}</td></tr>`).join('')}
         </tbody></table>
       </div>
     </div>
@@ -796,7 +799,7 @@ async function pageOrders(view, params) {
       const kindLabel = (res.kind || '').split(',').map((k) => (KINDS.find(([x]) => x === k) || [])[1]).filter(Boolean).join(' + ');
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 单，金额合计 <b class="col-amount"><span class="colv">${fmtMoney(res.amount)}</span></b>（不含意外中止）${kindLabel ? ` · 销售类型：<b>${kindLabel}</b>` : ''}</p>
         <table><thead><tr><th>日期</th><th>单号</th><th>客户${colEye('customer', mask.has('customer'))}</th><th>主题${colEye('subject', mask.has('subject'))}</th><th class="num">金额${colEye('amount', mask.has('amount'))}</th><th class="num">已回款${colEye('received', mask.has('received'))}</th><th>状态</th><th>发货</th><th>业务员</th></tr></thead><tbody>
-        ${res.rows.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="lead col-customer"><span class="colv">${custLink(o.customer)}</span></td><td class="col-subject"><div class="colv"><div class="ellipsis" title="${esc(o.subject)}">${esc(o.subject)}</div>${termLine(o)}</div></td>
+        ${res.rows.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="lead col-customer"><span class="colv">${custLink(o.customer)}${endLine(o)}</span></td><td class="col-subject"><div class="colv"><div class="ellipsis" title="${esc(o.subject)}">${esc(o.subject)}</div>${termLine(o)}</div></td>
           <td class="num col-amount"><span class="colv">${fmtMoney(o.amount)}${o.money_type !== 'RMB' ? ` <span class="muted small">${esc(o.money_type)}</span>` : ''}</span></td><td class="num col-received"><span class="colv">${o.received ? fmtMoney(o.received) : '<span class="muted">—</span>'}</span></td>
           <td>${statusTag(o)}</td><td class="nowrap small">${esc(o.st_send_text)}${o.shipments ? ` <span class="muted">(${o.shipments})</span>` : ''}</td><td class="nowrap">${esc(o.who)}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">没有符合条件的订单</td></tr>'}
         </tbody></table>`;
@@ -1092,7 +1095,7 @@ async function pageActions(view, params) {
 const SALES_DIMS = [['who', '业务员'], ['customer', '客户'], ['product', '产品型号'], ['class', '产品分类'], ['group', '产品大类'], ['region', '地区'], ['type', '订单类型'], ['month', '月份']];
 const SALES_FILTERS = { who: '业务员', customer_id: '客户', prod: '产品型号', class: '分类', group: '大类', state: '地区', type: '类型', owner: '所有者', month: '月份' };
 async function pageSales(view, params) {
-  const f = { by: 'who', years: '', ytd: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
+  const f = { by: 'who', years: '', ytd: '', end: '1', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
   const yearsAll = META.years.slice(0, 8);
   const state = { ...f, years: f.years || yearsAll.slice(0, 3).join(',') };
   view.innerHTML = `<h1>销售分析 <span class="muted small">订单金额，不含意外中止；按产品 / 分类 / 大类维度或带产品条件时用订单明细金额</span></h1>
@@ -1101,6 +1104,7 @@ async function pageSales(view, params) {
         <span class="spacer"></span>
         <span class="years" id="years">${yearsAll.map((y) => `<label><input type="checkbox" value="${y}" ${state.years.split(',').includes(String(y)) ? 'checked' : ''}>${y}</label>`).join('')}</span>
         <label class="small" title="各年份只统计 1 月 1 日至今天的月日，便于与今年比较"><input type="checkbox" id="ytd" ${state.ytd ? 'checked' : ''}> 同期至今</label>
+        <label class="small" title="经代理商下的订单算到最终客户名下（订单备注“终端客户：…”、代理商订单的收货地址，或本机 data/end_customers.json 手工对照）；不勾则按下单客户"><input type="checkbox" id="endMode" ${state.end !== '0' ? 'checked' : ''}> 按最终客户</label>
         <select id="limit" class="small"><option value="100" ${state.limit === '100' ? 'selected' : ''}>前 100 行</option><option value="200" ${state.limit === '200' ? 'selected' : ''}>前 200 行</option><option value="1000" ${state.limit === '1000' ? 'selected' : ''}>前 1000 行</option></select>
         ${exportButton('sales')}
       </div>
@@ -1108,7 +1112,7 @@ async function pageSales(view, params) {
     </div>
     <div class="grid row2"><div class="card"><h2>按月对比 <span class="count" id="chartNote"></span></h2><div class="legend" id="legend"></div><div id="chart"></div></div><div class="card" id="totals"></div></div>
     <div class="card" style="margin-top:14px" id="table"><div class="empty">加载中…</div></div>`;
-  const current = () => Object.fromEntries(Object.entries(state).filter(([k]) => ['by', 'years', 'ytd', 'who', 'customer_id', 'prod', 'class', 'group', 'state', 'type', 'owner', 'month', 'limit'].includes(k)));
+  const current = () => Object.fromEntries(Object.entries(state).filter(([k]) => ['by', 'years', 'ytd', 'end', 'who', 'customer_id', 'prod', 'class', 'group', 'state', 'type', 'owner', 'month', 'limit'].includes(k) && !(k === 'end' && state.end !== '0')));
   const renderCrumbs = (labels) => {
     const keys = Object.keys(SALES_FILTERS).filter((k) => state[k]);
     $('#crumbs').innerHTML = keys.length ? keys.map((k) => `<span class="crumb"><b>${SALES_FILTERS[k]}</b> ${esc((labels && labels[k]) || state[k])} <a data-clear="${k}" title="去掉此条件">×</a></span>`).join('') + `<a class="small" id="clearAll">清除全部条件</a>` : '<span class="muted small">点击表中名称可逐层下钻：业务员 → 客户 → 产品；分类 → 产品；大类 → 分类；地区 → 客户</span>';
@@ -1165,7 +1169,7 @@ async function pageSales(view, params) {
             const name = isGroup ? `<span class="fold" data-fold="g${idx}" title="展开 / 收起集团内各公司"><span class="tri-fold">▸</span>${esc(r.name)}</span>${(r.members.some((m) => m.customer && m.customer.severe)) ? `<span class="tag severe" title="集团内有严重逾期的公司：${esc(r.members.filter((m) => m.customer && m.customer.severe).map((m) => m.name).join('、'))}">严重逾期</span>` : ''}`
               : d.by === 'customer' ? custLink(r.customer) : d.by === 'product' ? prodLink({ model_name: r.model_name, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
             const drillable = !(d.by === 'customer' && !r.id && !isGroup);
-            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ` data-ckey="${esc(String(r.key))}"`}><td class="muted nowrap">${sub ? '└' : `<span class="row-eye${excluded.has(String(r.key)) ? ' off' : ''}" title="关掉 / 恢复：把这一行当年的销售额从年度合计里去掉">${EYE_SVG}</span>${rank}`}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small"${isGroup ? ` title="${esc(r.members.map((m) => m.name).join('、'))}"` : ''}>${esc(r.sub)}</div>` : ''}</td>
+            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ` data-ckey="${esc(String(r.key))}"`}><td class="muted nowrap">${sub ? '└' : `<span class="row-eye${excluded.has(String(r.key)) ? ' off' : ''}" title="关掉 / 恢复：把这一行当年的销售额从年度合计里去掉">${EYE_SVG}</span>${rank}`}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small"${isGroup ? ` title="${esc(r.members.map((m) => m.name).join('、'))}"` : ''}>${esc(r.sub)}</div>` : ''}${viaLine(r.via)}</td>
             ${years.map((y, k) => { const c = r.cells[y] || { amount: 0, count: 0, qty: 0 }; return `<td class="num">${k === 0 ? inlineBar(c.amount, max, fmtMoney(c.amount)) : fmtMoney(c.amount)}<div class="muted small">${c.count ? `${fmtInt(c.count)} 单` : '—'}${d.line_mode && c.qty ? ` · ${fmtInt(c.qty)}` : ''}</div></td>`; }).join('')}
             <td class="num">${r.yoy == null ? '<span class="muted">—</span>' : `<span class="${r.yoy >= 0 ? 'up' : 'down'}">${r.yoy > 0 ? '+' : ''}${r.yoy}%</span>`}</td><td class="num">${fmtMoney(r.total)}</td>
             <td class="nowrap small">${drillable && drill[d.by] ? `<a data-drill="${idx}">下钻 ${dimName[drill[d.by]]}</a> · ` : ''}<a data-orders="${idx}">订单</a></td></tr>`;
@@ -1195,6 +1199,7 @@ async function pageSales(view, params) {
   view.querySelectorAll('#dims .chip').forEach((c) => c.addEventListener('click', () => { state.by = c.dataset.by; view.querySelectorAll('#dims .chip').forEach((x) => x.classList.toggle('active', x === c)); load(); }));
   $('#years').addEventListener('change', () => { const ys = [...view.querySelectorAll('#years input:checked')].map((i) => i.value); if (!ys.length) return; state.years = ys.join(','); load(); });
   $('#ytd').addEventListener('change', (e) => { state.ytd = e.target.checked ? '1' : ''; load(); });
+  $('#endMode').addEventListener('change', (e) => { state.end = e.target.checked ? '1' : '0'; load(); });
   $('#limit').addEventListener('change', (e) => { state.limit = e.target.value; load(); });
   bindExport(view, current);
   load();
@@ -1606,7 +1611,7 @@ async function pageSalesperson(view, params) {
         </div>
         <div class="grid row22" style="margin-top:14px">
           <div class="card"><h2>未回款计划 <span class="count">按计划日期 · 前 ${d.open_plans.length}</span></h2>${d.open_plans.length ? `<table><thead><tr><th>计划日期</th><th>客户</th><th>订单号</th><th class="num">金额</th><th>状态</th></tr></thead><tbody>${d.open_plans.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td>${custLink(p.customer)}</td><td class="nowrap">${orderLink(p.order_id, p.order_no)}</td><td class="num">${fmtMoney(p.amount)}</td><td>${planTag(p)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}</div>
-          <div class="card"><h2>最近订单</h2>${d.recent_orders.length ? `<table><thead><tr><th>日期</th><th>客户</th><th>主题</th><th class="num">金额</th><th>状态</th></tr></thead><tbody>${d.recent_orders.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td>${custLink(o.customer)}</td><td class="ellipsis" style="max-width:240px" title="${esc(o.subject)}">${esc(o.subject)}</td><td class="num">${fmtMoney(o.amount)}</td><td>${statusTag(o)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}</div>
+          <div class="card"><h2>最近订单</h2>${d.recent_orders.length ? `<table><thead><tr><th>日期</th><th>客户</th><th>主题</th><th class="num">金额</th><th>状态</th></tr></thead><tbody>${d.recent_orders.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td>${custLink(o.customer)}${endLine(o)}</td><td class="ellipsis" style="max-width:240px" title="${esc(o.subject)}">${esc(o.subject)}</td><td class="num">${fmtMoney(o.amount)}</td><td>${statusTag(o)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}</div>
         </div>
         <div class="card" style="margin-top:14px"><h2>最近工作日志</h2>${d.recent_actions.length ? `<table><tbody>${d.recent_actions.map((a) => `<tr><td class="nowrap">${esc(a.date)}${dateFlag(a.date_flag, a.date)}</td><td class="small nowrap">${esc(a.type_text)}</td><td>${custLink(a.customer)}${a.contact ? `<div class="muted small">${esc(a.contact)}</div>` : ''}</td><td>${actionText(a)}${mentions(a)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}</div>`;
       barChart($('#spChart'), { labels: d.monthly.map((m) => m.month.slice(5) + '月'), height: 220, series: [{ name: '订单额', color: 'var(--s1)', values: d.monthly.map((m) => m.orders.amount) }, { name: '回款额', color: 'var(--s2)', values: d.monthly.map((m) => m.receipts.amount) }], tipFn: (i) => `<b>${d.monthly[i].month}</b><br>订单 ${fmtMoney(d.monthly[i].orders.amount)}（${d.monthly[i].orders.count} 单）<br>回款 ${fmtMoney(d.monthly[i].receipts.amount)}（${d.monthly[i].receipts.count} 笔）<br>日志 ${d.monthly[i].actions} 条` });
@@ -1853,6 +1858,7 @@ async function openOrder(id) {
     const html = `
       <div class="kv">
         <div><label>客户</label><span>${custLink(o.customer)}${o.customer && o.customer.owner ? ` <span class="muted small">所有者 ${esc(o.customer.owner)}</span>` : ''}</span></div>
+        ${o.end_customer ? `<div><label>最终客户</label><span>${custLink(o.end_customer)} <span class="muted small">${esc(o.end_customer.source || '')}</span></span></div>` : ''}
         <div><label>日期</label><span>${esc(o.date)}${o.end_date && o.end_date !== o.date ? ` ~ ${esc(o.end_date)}` : ''}</span></div>
         <div><label>金额</label><span class="money"><b>${fmtMoney(o.amount)}</b> ${esc(o.money_type)}</span></div>
         <div><label>已回款</label><span class="money">${fmtMoney(o.received)}${o.amount ? ` <span class="muted small">(${(o.received / o.amount * 100).toFixed(0)}%)</span>` : ''}</span></div>
@@ -1916,11 +1922,13 @@ async function openCustomer(id) {
         <div class="card kpi"><div class="label">回款</div><div class="value">${fmtWan(c.receipts)}</div><div class="sub">${fmtInt(d.receipts.length)}${d.receipts.length >= 50 ? '+' : ''} 笔</div></div>
         <div class="card kpi"><div class="label">未回款计划</div><div class="value ${d.open_plans.length ? 'down' : ''}">${fmtMoney(d.open_plans.reduce((s, p) => s + p.amount, 0))}</div><div class="sub">${d.open_plans.length} 期${d.open_plans.filter((p) => p.overdue_days > 0).length ? `，逾期 ${d.open_plans.filter((p) => p.overdue_days > 0).length} 期` : ''}</div></div>
       </div>
-      ${d.yearly.length ? `<h3>历年订单额</h3><table><tbody>${d.yearly.map((y) => `<tr><td style="width:60px">${esc(y.year)}</td><td>${inlineBar(y.amount, yearsMax, fmtMoney(y.amount))}</td><td class="num muted small" style="width:70px">${y.count} 单</td></tr>`).join('')}</tbody></table>` : ''}
+      ${d.via_agents && d.via_agents.length ? `<h3>经代理商购买 <span class="muted">已计入历年订单额</span></h3><table><tbody>${d.via_agents.map((v) => `<tr><td>${custLink(v.agent)}</td><td class="num">${fmtMoney(v.amount)}</td><td class="num muted small">${v.count} 单 · 最近 ${esc(v.last_date || '—')}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${d.resold_to && d.resold_to.length ? `<h3>代为下单 <span class="muted">最终客户是别家，历年订单额里不含</span></h3><table><tbody>${d.resold_to.map((v) => `<tr><td>${custLink(v.customer)}</td><td class="num">${fmtMoney(v.amount)}</td><td class="num muted small">${v.count} 单 · 最近 ${esc(v.last_date || '—')}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${d.yearly.length ? `<h3>历年订单额${d.via_agents && d.via_agents.length ? ' <span class="muted">按最终客户</span>' : ''}</h3><table><tbody>${d.yearly.map((y) => `<tr><td style="width:60px">${esc(y.year)}</td><td>${inlineBar(y.amount, yearsMax, fmtMoney(y.amount))}</td><td class="num muted small" style="width:70px">${y.count} 单</td></tr>`).join('')}</tbody></table>` : ''}
       <h3>联系人 <span class="muted">${d.contacts.length} 人</span></h3>
       ${d.contacts.length ? `<table><thead><tr><th>姓名</th><th>职务</th><th>部门</th><th>手机</th><th>电话</th><th>邮箱 / 微信</th><th>备注</th></tr></thead><tbody>${d.contacts.map((k) => `<tr><td>${esc(k.name)}</td><td class="small">${esc(k.headship || '')}</td><td class="small">${esc(k.department || '')}</td><td class="nowrap">${esc(k.mphone || '')}</td><td class="nowrap">${esc(k.phone || '')}</td><td class="small">${esc([k.email, k.weixin].filter(Boolean).join(' / '))}</td><td class="small">${esc(k.remark || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       <h3>订单 <span class="muted">最近 ${d.orders.length} 单</span></h3>
-      ${d.orders.length ? `<table><thead><tr><th>日期</th><th>单号</th><th>主题</th><th class="num">金额</th><th class="num">已回款</th><th>状态</th><th>业务员</th></tr></thead><tbody>${d.orders.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="ellipsis" style="max-width:300px" title="${esc(o.subject)}">${esc(o.subject)}</td><td class="num">${fmtMoney(o.amount)}</td><td class="num">${o.received ? fmtMoney(o.received) : '—'}</td><td>${statusTag(o)}</td><td>${esc(o.who)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
+      ${d.orders.length ? `<table><thead><tr><th>日期</th><th>单号</th><th>主题</th><th class="num">金额</th><th class="num">已回款</th><th>状态</th><th>业务员</th></tr></thead><tbody>${d.orders.map((o) => `<tr class="click" data-order="${o.id}"><td class="nowrap">${esc(o.date)}</td><td class="nowrap">${esc(o.no)}</td><td class="ellipsis" style="max-width:300px" title="${esc(o.subject)}">${esc(o.subject)}${o.end_customer && o.end_customer.id === c.id ? `<div class="muted small">经 ${custLink(o.customer)}</div>` : o.end_customer ? `<div class="muted small">最终客户 ${custLink(o.end_customer)}</div>` : ''}</td><td class="num">${fmtMoney(o.amount)}</td><td class="num">${o.received ? fmtMoney(o.received) : '—'}</td><td>${statusTag(o)}</td><td>${esc(o.who)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
       ${d.open_plans.length ? `<h3>未回款计划</h3><table><thead><tr><th>计划日期</th><th>订单号</th><th class="num">金额</th><th>状态</th><th>业务员</th></tr></thead><tbody>${d.open_plans.map((p) => `<tr><td class="nowrap">${esc(p.date)}</td><td>${orderLink(p.order_id, p.order_no)}</td><td class="num">${fmtMoney(p.amount)}</td><td>${planTag(p)}</td><td>${esc(p.who)}</td></tr>`).join('')}</tbody></table>` : ''}
       <h3>回款记录 <span class="muted">最近 ${d.receipts.length} 笔</span></h3>
       ${d.receipts.length ? `<table><thead><tr><th>日期</th><th>订单号</th><th class="num">金额</th><th>付款方式</th><th>业务员</th><th>备注</th></tr></thead><tbody>${d.receipts.map((n) => `<tr><td class="nowrap">${esc(n.date)}</td><td>${orderLink(n.order_id, n.order_no)}</td><td class="num">${fmtMoney(n.amount)}</td><td class="small">${esc(n.type_text)}</td><td>${esc(n.who || '')}</td><td class="small">${esc(n.memo || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">无</div>'}
