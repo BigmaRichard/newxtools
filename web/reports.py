@@ -316,11 +316,21 @@ class ReportQueries:
             cur_a = row["cells"].get(latest, {}).get("amount", 0.0)
             prev_a = row["cells"].get(prev, {}).get("amount", 0.0) if prev else 0.0
             row["yoy"] = round((cur_a - prev_a) / abs(prev_a) * 100, 1) if prev_a else None
-        if by == "customer":
+        sort = self.get("sort") if by == "customer" else ""
+        if sort in ("change_desc", "change_asc"):   # 按股价涨跌幅排：全部行先挂股价再排，前 N 行与排序一致；没有涨跌的排最后
+            self._attach_stocks(ordered)
+
+            def pct(r: Dict[str, Any]) -> Optional[float]:
+                st = r.get("stocks") or []
+                return st[0].get("change_pct") if st else None
+            ordered = (sorted((r for r in ordered if pct(r) is not None), key=pct, reverse=sort == "change_desc")
+                       + [r for r in ordered if pct(r) is None])
+        elif by == "customer":
+            sort = ""
             self._attach_stocks(ordered[:limit])
         monthly = self._sales_monthly(base, args, years) if by != "month" else None
         return {
-            "by": by, "years": years, "ytd": ytd, "end": end, "listed": self.get("listed") in ("1", "on", "true"), "line_mode": line_mode, "total_rows": len(ordered),
+            "by": by, "years": years, "ytd": ytd, "end": end, "listed": self.get("listed") in ("1", "on", "true"), "sort": sort, "line_mode": line_mode, "total_rows": len(ordered),
             "rows": ordered[:limit], "totals": totals,
             "monthly": monthly if monthly is not None else [{"month": r["key"], "cells": r["cells"]} for r in ordered],
             "filters": self._sales_filter_labels(),

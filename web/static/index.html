@@ -226,6 +226,9 @@ a + .tag.severe { margin-left: 4px; }
 .tag-gu.h { border-color: #7b3fbf; color: #7b3fbf; }
 .stk { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .stk-line { line-height: 20px; white-space: nowrap; }
+.chips.stk-opts { margin-left: 10px; padding-left: 10px; border-left: 1px solid #e3e3e3; }
+.sort-btn { display: inline-block; min-width: 16px; padding: 0 3px; border: 1px solid #d6d6d6; border-radius: 3px; font-size: 11px; line-height: 15px; text-align: center; cursor: pointer; color: #666; text-decoration: none; }
+.sort-btn.on { border-color: #2f6fde; color: #2f6fde; background: #eef4ff; }
 .stk-line + .stk-line { margin-top: 2px; }
 .stk-up { color: #d0021b; } .stk-down { color: #1a9a3a; }
 .name20 { display: block; max-width: 20em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -533,7 +536,8 @@ const custLink = (c) => c ? (c.id ? `<a data-cust="${c.id}">${esc(c.name)}</a>${
 // 销售分析客户名：最长 20 个字符，超出截断加“…”，悬停看全名
 const clipName = (link, c) => !c || !c.name || c.name.length <= 20 ? link(c) : `<span title="${esc(c.name)}">${link({ ...c, name: c.name.slice(0, 19) + '…' })}</span>`;
 // 上市公司股票列（row.stocks，见 web/stocks.py）：A 股在前、H 股在后，两地上市各一行；四列各自对齐
-const STK_HEAD = '<th>股票</th><th class="num">现价</th><th class="num">年初</th><th class="num">涨跌</th>';
+const STK_SORT = { '': ['⇅', '按股价涨跌幅排序（从高到低）'], change_desc: ['↓', '涨跌幅从高到低；再点从低到高'], change_asc: ['↑', '涨跌幅从低到高；再点恢复按金额排序'] };
+const stkHeadHtml = (sort) => `<th>股票</th><th class="num">现价</th><th class="num">年初</th><th class="num nowrap">涨跌 <a class="sort-btn${sort ? ' on' : ''}" id="chgSort" title="${STK_SORT[sort || ''][1]}；没有涨跌数据的排最后">${STK_SORT[sort || ''][0]}</a></th>`;
 const STK_EMPTY = '<td></td><td></td><td></td><td></td>';
 const stkCells = (list) => {
   if (!list || !list.length) return STK_EMPTY;
@@ -1118,12 +1122,14 @@ async function pageActions(view, params) {
 const SALES_DIMS = [['who', '业务员'], ['customer', '客户'], ['product', '产品型号'], ['class', '产品分类'], ['group', '产品大类'], ['region', '地区'], ['type', '订单类型'], ['month', '月份']];
 const SALES_FILTERS = { listed: '范围', who: '业务员', customer_id: '客户', prod: '产品型号', class: '分类', group: '大类', state: '地区', type: '类型', owner: '所有者', month: '月份' };
 async function pageSales(view, params) {
-  const f = { by: 'who', years: '', ytd: '', end: '1', listed: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
+  const f = { by: 'who', years: '', ytd: '', end: '1', listed: '', stock: '1', sort: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
   const yearsAll = META.years.slice(0, 8);
   const state = { ...f, years: f.years || yearsAll.slice(0, 3).join(',') };
   view.innerHTML = `<h1>销售分析 <span class="muted small">订单金额，不含意外中止；按产品 / 分类 / 大类维度或带产品条件时用订单明细金额</span></h1>
-    <div class="card" style="margin-bottom:14px">
-      <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}" ${k === 'product' ? 'title="同一型号下的各批号已合并"' : ''}>${l}</span>` + (k === 'customer' ? `<label class="small end-mode" title="经代理商下的订单算到最终客户名下（订单备注“终端客户：…”、代理商订单的收货地址，或本机 data/end_customers.json 手工对照）；不勾则按下单客户"><input type="checkbox" id="endMode" ${state.end !== '0' ? 'checked' : ''}> 按最终客户</label>` : '')).join('')}<span class="chip ${state.listed ? 'active' : ''}" id="listedBtn" title="只看上市公司客户（本机 data/listed_companies.json；含子公司 / 分公司）；按客户看时有上市公司的页面多出股票 / 现价 / 年初 / 涨跌四列（A 股、H 股分开）">上市公司</span></span>
+    <div class="grid row2"><div class="card"><h2>按月对比 <span class="count" id="chartNote"></span></h2><div class="legend" id="legend"></div><div id="chart"></div></div><div class="card" id="totals"></div></div>
+    <div class="card" style="margin-top:14px">
+      <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}" ${k === 'product' ? 'title="同一型号下的各批号已合并"' : ''}>${l}</span>` + (k === 'customer' ? `<label class="small end-mode" title="经代理商下的订单算到最终客户名下（订单备注“终端客户：…”、代理商订单的收货地址，或本机 data/end_customers.json 手工对照）；不勾则按下单客户"><input type="checkbox" id="endMode" ${state.end !== '0' ? 'checked' : ''}> 按最终客户</label>` : '')).join('')}</span>
+        <span class="chips stk-opts"><span class="chip ${state.stock !== '0' ? 'active' : ''}" id="stockBtn" title="明细表里显示 / 隐藏“股票 / 现价 / 年初 / 涨跌”四列（按客户看、当前页有上市公司客户时）">股票</span><span class="chip ${state.listed ? 'active' : ''}" id="listedBtn" title="只统计上市公司客户的订单（本机 data/listed_companies.json；含子公司 / 分公司），任何维度都生效">只看上市公司</span></span>
         <span class="spacer"></span>
         <span class="years" id="years">${yearsAll.map((y) => `<label><input type="checkbox" value="${y}" ${state.years.split(',').includes(String(y)) ? 'checked' : ''}>${y}</label>`).join('')}</span>
         <label class="small" title="各年份只统计 1 月 1 日至今天的月日，便于与今年比较"><input type="checkbox" id="ytd" ${state.ytd ? 'checked' : ''}> 同期至今</label>
@@ -1132,9 +1138,8 @@ async function pageSales(view, params) {
       </div>
       <div class="crumbs" id="crumbs"></div>
     </div>
-    <div class="grid row2"><div class="card"><h2>按月对比 <span class="count" id="chartNote"></span></h2><div class="legend" id="legend"></div><div id="chart"></div></div><div class="card" id="totals"></div></div>
-    <div class="card" style="margin-top:14px" id="table"><div class="empty">加载中…</div></div>`;
-  const current = () => Object.fromEntries(Object.entries(state).filter(([k]) => ['by', 'years', 'ytd', 'end', 'listed', 'who', 'customer_id', 'prod', 'class', 'group', 'state', 'type', 'owner', 'month', 'limit'].includes(k) && !(k === 'end' && state.end !== '0')));
+    <div class="card" style="margin-top:10px" id="table"><div class="empty">加载中…</div></div>`;
+  const current = () => Object.fromEntries(Object.entries(state).filter(([k]) => ['by', 'years', 'ytd', 'end', 'listed', 'stock', 'sort', 'who', 'customer_id', 'prod', 'class', 'group', 'state', 'type', 'owner', 'month', 'limit'].includes(k) && !(k === 'end' && state.end !== '0') && !(k === 'stock' && state.stock !== '0')));
   const renderCrumbs = (labels) => {
     const keys = Object.keys(SALES_FILTERS).filter((k) => state[k]);
     $('#crumbs').innerHTML = keys.length ? keys.map((k) => `<span class="crumb"><b>${SALES_FILTERS[k]}</b> ${esc((labels && labels[k]) || state[k])} <a data-clear="${k}" title="去掉此条件">×</a></span>`).join('') + `<a class="small" id="clearAll">清除全部条件</a>` : '<span class="muted small">点击表中名称可逐层下钻：业务员 → 客户 → 产品；分类 → 产品；大类 → 分类；地区 → 客户</span>';
@@ -1145,6 +1150,8 @@ async function pageSales(view, params) {
   const load = async () => {
     setHash('sales', current());
     $('#listedBtn').classList.toggle('active', !!state.listed);
+    $('#stockBtn').classList.toggle('active', state.stock !== '0');
+    if (state.by !== 'customer') state.sort = '';
     const table = $('#table');
     table.classList.add('loading');
     try {
@@ -1182,8 +1189,8 @@ async function pageSales(view, params) {
       const max = Math.max(1, ...d.rows.map((r) => (r.cells[latest] || {}).amount || 0));
       const drill = { who: 'customer', customer: 'product', product: 'customer', class: 'product', group: 'class', region: 'customer', type: 'who', month: 'who' };
       const dimName = Object.fromEntries(SALES_DIMS);
-      const showStk = d.by === 'customer' && d.rows.some((r) => (r.stocks && r.stocks.length) || (r.members || []).some((m) => m.stocks && m.stocks.length));
-      const stkHead = showStk ? STK_HEAD : '', stkPad = showStk ? STK_EMPTY : '';
+      const showStk = state.stock !== '0' && d.by === 'customer' && d.rows.some((r) => (r.stocks && r.stocks.length) || (r.members || []).some((m) => m.stocks && m.stocks.length));
+      const stkHead = showStk ? stkHeadHtml(d.sort) : '', stkPad = showStk ? STK_EMPTY : '';
       table._stkPad = stkPad;
       table.innerHTML = `<table><thead><tr><th>#</th><th>${dimName[d.by]}</th>${stkHead}${years.map((y) => `<th class="num">${y}${d.line_mode ? ' 金额 / 数量' : ''}</th>`).join('')}<th class="num">同比</th><th class="num">合计</th><th></th></tr></thead><tbody>
         <tr class="total"><td></td><td>合计</td>${stkPad}${years.map((y) => `<td class="num">${fmtMoney((d.totals[y] || {}).amount)}<div class="muted small">${fmtInt((d.totals[y] || {}).count)} 单${d.line_mode ? ` · ${fmtInt((d.totals[y] || {}).qty)}` : ''}</div></td>`).join('')}<td class="num">${years.length > 1 ? yoyText((d.totals[latest] || {}).amount, (d.totals[years[1]] || {}).amount) : '—'}</td><td class="num">${fmtMoney(years.reduce((s, y) => s + ((d.totals[y] || {}).amount || 0), 0))}</td><td></td></tr>
@@ -1216,6 +1223,8 @@ async function pageSales(view, params) {
       table.querySelectorAll('a[data-orders]').forEach((a) => a.addEventListener('click', () => { const r = rowAt(a.dataset.orders); const q = { who: state.who, customer_id: state.customer_id, prod: state.prod, class: state.class, group: state.group, state: state.state, type: state.type, owner: state.owner, month: state.month, ...filterFor(r) };
         if (!q.month) { q.from = `${latest}-01-01`; q.to = d.ytd ? `${latest}-${META.today.slice(5)}` : `${latest}-12-31`; } go('orders', q); }));
       table.querySelectorAll('.row-eye').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); const k = el.closest('tr').dataset.ckey; excluded.has(k) ? excluded.delete(k) : excluded.add(k); renderTotals(); syncTable(); }));
+      const cs = $('#chgSort');
+      if (cs) cs.addEventListener('click', () => { state.sort = { '': 'change_desc', change_desc: 'change_asc', change_asc: '' }[state.sort || '']; load(); });
       bindFolds(table);
       bindLinks(table);
       syncTable();
@@ -1226,6 +1235,7 @@ async function pageSales(view, params) {
   $('#years').addEventListener('change', () => { const ys = [...view.querySelectorAll('#years input:checked')].map((i) => i.value); if (!ys.length) return; state.years = ys.join(','); load(); });
   $('#ytd').addEventListener('change', (e) => { state.ytd = e.target.checked ? '1' : ''; load(); });
   $('#listedBtn').addEventListener('click', () => { state.listed = state.listed ? '' : '1'; load(); });
+  $('#stockBtn').addEventListener('click', () => { state.stock = state.stock === '0' ? '1' : '0'; if (state.stock === '0') state.sort = ''; load(); });
   $('#endMode').addEventListener('change', (e) => { state.end = e.target.checked ? '1' : '0'; load(); });
   $('#limit').addEventListener('change', (e) => { state.limit = e.target.value; load(); });
   bindExport(view, current);

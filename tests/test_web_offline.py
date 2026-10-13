@@ -1186,3 +1186,12 @@ def test_listed_companies_and_quotes(tmp_path):
     assert sheet[0][2:8] == ["A / H", "恒瑞医药", "sh600276 / hk01276", "45.51 / HK$60.00", "60.68 / HK$50.00", "-25.0 / 20.0"]
     assert next(r for r in sheet if r[0] == "安徽悦康凯悦制药有限公司")[2:8] == ["A", "悦康药业", "sh688658", 20.0, 25.0, -20.0]
     assert query(by="who", years=THIS_YEAR, listed=1).sales()["totals"][y]["amount"] == 1800.0               # 其他维度也按上市公司筛
+    # 按股价涨跌幅排序（全部行；集团行用 A 股那只；没有涨跌的排最后；limit 截在排序之后）
+    keys = lambda r: [x["key"] for x in r["rows"]]  # noqa: E731
+    assert keys(query(by="customer", years=THIS_YEAR, listed=1, sort="change_desc").sales())[:2] == [64, "group:恒瑞集团"]
+    up = query(by="customer", years=THIS_YEAR, listed=1, sort="change_asc").sales()
+    assert up["sort"] == "change_asc" and keys(up)[:2] == ["group:恒瑞集团", 64]
+    allrows = query(by="customer", years=THIS_YEAR, sort="change_desc").sales()["rows"]
+    assert allrows[0]["key"] == 64 and all(not r.get("stocks") for r in allrows[2:])
+    assert keys(query(by="customer", years=THIS_YEAR, sort="change_desc", limit=1).sales()) == [64]
+    assert query(by="who", years=THIS_YEAR, sort="change_desc").sales()["sort"] == ""
