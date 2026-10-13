@@ -15,7 +15,7 @@ import datetime as dt
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .stocks import market
+from .stocks import market, stock_markets
 
 CANCELLED = "3"
 OPEN_PLAN_SQL = "IN ('2','4')"
@@ -316,12 +316,13 @@ class ReportQueries:
             cur_a = row["cells"].get(latest, {}).get("amount", 0.0)
             prev_a = row["cells"].get(prev, {}).get("amount", 0.0) if prev else 0.0
             row["yoy"] = round((cur_a - prev_a) / abs(prev_a) * 100, 1) if prev_a else None
-        sort = self.get("sort") if by == "customer" else ""
+        markets = stock_markets(self.get("stock"))
+        sort = self.get("sort") if by == "customer" and markets else ""
         if sort in ("change_desc", "change_asc"):   # 按股价涨跌幅排：全部行先挂股价再排，前 N 行与排序一致；没有涨跌的排最后
             self._attach_stocks(ordered)
 
-            def pct(r: Dict[str, Any]) -> Optional[float]:
-                st = r.get("stocks") or []
+            def pct(r: Dict[str, Any]) -> Optional[float]:   # 只开一个市场时按该市场；两个都开时按显示的第一只（A 股在前）
+                st = [x for x in r.get("stocks") or [] if x["market"] in markets]
                 return st[0].get("change_pct") if st else None
             ordered = (sorted((r for r in ordered if pct(r) is not None), key=pct, reverse=sort == "change_desc")
                        + [r for r in ordered if pct(r) is None])
@@ -330,7 +331,7 @@ class ReportQueries:
             self._attach_stocks(ordered[:limit])
         monthly = self._sales_monthly(base, args, years) if by != "month" else None
         return {
-            "by": by, "years": years, "ytd": ytd, "end": end, "listed": self.get("listed") in ("1", "on", "true"), "sort": sort, "line_mode": line_mode, "total_rows": len(ordered),
+            "by": by, "years": years, "ytd": ytd, "end": end, "listed": self.get("listed") in ("1", "on", "true"), "sort": sort, "stock": ",".join(m.lower() for m in markets) or "0", "line_mode": line_mode, "total_rows": len(ordered),
             "rows": ordered[:limit], "totals": totals,
             "monthly": monthly if monthly is not None else [{"month": r["key"], "cells": r["cells"]} for r in ordered],
             "filters": self._sales_filter_labels(),

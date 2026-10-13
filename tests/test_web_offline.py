@@ -1195,3 +1195,14 @@ def test_listed_companies_and_quotes(tmp_path):
     assert allrows[0]["key"] == 64 and all(not r.get("stocks") for r in allrows[2:])
     assert keys(query(by="customer", years=THIS_YEAR, sort="change_desc", limit=1).sales()) == [64]
     assert query(by="who", years=THIS_YEAR, sort="change_desc").sales()["sort"] == ""
+    # A股 / H股 开关（stock=a,h 缺省、旧 stock=1 同义 / a / h / 0）：只开一个市场时按该市场涨跌排序，导出只带该市场
+    from web.stocks import stock_markets
+    assert [stock_markets(v) for v in (None, "", "1", "a,h", "a", "h", "0")] == [["A", "H"]] * 4 + [["A"], ["H"], []]
+    hk = query(by="customer", years=THIS_YEAR, listed=1, sort="change_desc", stock="h").sales()
+    assert hk["stock"] == "h" and keys(hk)[:2] == ["group:恒瑞集团", 64]                    # 恒瑞 H +20%，悦康无 H 股排最后
+    assert keys(query(by="customer", years=THIS_YEAR, listed=1, sort="change_desc", stock="a").sales())[:2] == [64, "group:恒瑞集团"]
+    off = query(by="customer", years=THIS_YEAR, listed=1, sort="change_desc", stock="0").sales()
+    assert off["sort"] == "" and off["stock"] == "0"
+    h_hdr, h_sheet = _sales_sheet(hk)
+    assert h_hdr[2:8] == ["市场", "股票简称", "代码", "现价", "年初", "涨跌%"] and h_sheet[0][2:8] == ["H", "恒瑞医药", "hk01276", 60.0, 50.0, 20.0]
+    assert "市场" not in _sales_sheet(off)[0]

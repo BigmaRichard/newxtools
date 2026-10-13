@@ -143,7 +143,11 @@ def _sales_sheet(res: Dict[str, Any]) -> Tuple[Sequence[str], List[List[Any]]]:
     years = [str(y) for y in res["years"]]
     line = res.get("line_mode")
     headers = ["名称", "说明"]
-    stk = res.get("by") == "customer" and any(r.get("stocks") or any(m.get("stocks") for m in r.get("members") or []) for r in res["rows"])
+    shown = set((res.get("stock") or "a,h").upper().split(","))   # 股票列跟随前台 A股 / H股 开关
+
+    def stocks_of(r: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return [x for x in r.get("stocks") or [] if x.get("market") in shown]
+    stk = res.get("by") == "customer" and any(stocks_of(r) or any(stocks_of(m) for m in r.get("members") or []) for r in res["rows"])
     if stk:
         headers += ["市场", "股票简称", "代码", "现价", "年初", "涨跌%"]
     for y in years:
@@ -157,7 +161,7 @@ def _sales_sheet(res: Dict[str, Any]) -> Tuple[Sequence[str], List[List[Any]]]:
     def line_of(r: Dict[str, Any], indent: str = "") -> List[Any]:
         row: List[Any] = [indent + str(r.get("name") or ""), r.get("sub")]
         if stk:
-            row += _stock_cols(r.get("stocks") or [])
+            row += _stock_cols(stocks_of(r))
         for y in years:
             c = r["cells"].get(y) or {}
             row += [_num(c.get("amount", 0)), c.get("count", 0)] + ([_num(c.get("qty", 0))] if line else [])

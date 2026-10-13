@@ -26,6 +26,14 @@ QUOTE_TTL = 300
 TIMEOUT = 4
 
 
+def stock_markets(param: Any) -> List[str]:
+    """销售分析 stock 参数 → 要显示的市场：缺省 / "1" / "a,h" = A、H 都显示；"a" / "h" 只显示一个；"0" = 都不显示。"""
+    p = str(param if param is not None else "").strip().lower()
+    if p in ("", "1", "on", "true", "a,h", "h,a", "ah"):
+        return ["A", "H"]
+    return [m for m in ("A", "H") if m.lower() in p.replace(" ", "").split(",")]
+
+
 def market(code: str) -> str:
     """A（sh / sz / bj）或 H（hk）。"""
     return "H" if str(code).lower().startswith("hk") else "A"

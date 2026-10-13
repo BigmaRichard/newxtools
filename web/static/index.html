@@ -1122,14 +1122,18 @@ async function pageActions(view, params) {
 const SALES_DIMS = [['who', '业务员'], ['customer', '客户'], ['product', '产品型号'], ['class', '产品分类'], ['group', '产品大类'], ['region', '地区'], ['type', '订单类型'], ['month', '月份']];
 const SALES_FILTERS = { listed: '范围', who: '业务员', customer_id: '客户', prod: '产品型号', class: '分类', group: '大类', state: '地区', type: '类型', owner: '所有者', month: '月份' };
 async function pageSales(view, params) {
-  const f = { by: 'who', years: '', ytd: '', end: '1', listed: '', stock: '1', sort: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
+  const f = { by: 'who', years: '', ytd: '', end: '1', listed: '', stock: 'a,h', sort: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
   const yearsAll = META.years.slice(0, 8);
   const state = { ...f, years: f.years || yearsAll.slice(0, 3).join(',') };
+  // stock：a,h（缺省，旧链接 stock=1 同义）/ a / h / 0，分别控制 A 股、H 股两组股票行的显示
+  const mkts = () => { const v = String(state.stock || '').toLowerCase(); return ['', '1', 'a,h', 'h,a'].includes(v) ? new Set(['A', 'H']) : new Set(['A', 'H'].filter((m) => v.split(',').includes(m.toLowerCase()))); };
+  const setMkts = (set) => { state.stock = ['A', 'H'].filter((m) => set.has(m)).join(',').toLowerCase() || '0'; };
+  setMkts(mkts());
   view.innerHTML = `<h1>销售分析 <span class="muted small">订单金额，不含意外中止；按产品 / 分类 / 大类维度或带产品条件时用订单明细金额</span></h1>
     <div class="grid row2"><div class="card"><h2>按月对比 <span class="count" id="chartNote"></span></h2><div class="legend" id="legend"></div><div id="chart"></div></div><div class="card" id="totals"></div></div>
     <div class="card" style="margin-top:14px">
       <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}" ${k === 'product' ? 'title="同一型号下的各批号已合并"' : ''}>${l}</span>` + (k === 'customer' ? `<label class="small end-mode" title="经代理商下的订单算到最终客户名下（订单备注“终端客户：…”、代理商订单的收货地址，或本机 data/end_customers.json 手工对照）；不勾则按下单客户"><input type="checkbox" id="endMode" ${state.end !== '0' ? 'checked' : ''}> 按最终客户</label>` : '')).join('')}</span>
-        <span class="chips stk-opts"><span class="chip ${state.stock !== '0' ? 'active' : ''}" id="stockBtn" title="明细表里显示 / 隐藏“股票 / 现价 / 年初 / 涨跌”四列（按客户看、当前页有上市公司客户时）">股票</span><span class="chip ${state.listed ? 'active' : ''}" id="listedBtn" title="只统计上市公司客户的订单（本机 data/listed_companies.json；含子公司 / 分公司），任何维度都生效">只看上市公司</span></span>
+        <span class="chips stk-opts"><span class="chip ${mkts().has('A') ? 'active' : ''}" data-mkt="A" title="明细表里显示 / 隐藏 A 股（股票 / 现价 / 年初 / 涨跌）；A、H 都关时不显示股票列">A股</span><span class="chip ${mkts().has('H') ? 'active' : ''}" data-mkt="H" title="明细表里显示 / 隐藏 H 股（港股）；只开一个市场时“涨跌”排序按该市场">H股</span><span class="chip ${state.listed ? 'active' : ''}" id="listedBtn" title="只统计上市公司客户的订单（本机 data/listed_companies.json；含子公司 / 分公司），任何维度都生效">只看上市公司</span></span>
         <span class="spacer"></span>
         <span class="years" id="years">${yearsAll.map((y) => `<label><input type="checkbox" value="${y}" ${state.years.split(',').includes(String(y)) ? 'checked' : ''}>${y}</label>`).join('')}</span>
         <label class="small" title="各年份只统计 1 月 1 日至今天的月日，便于与今年比较"><input type="checkbox" id="ytd" ${state.ytd ? 'checked' : ''}> 同期至今</label>
@@ -1139,7 +1143,7 @@ async function pageSales(view, params) {
       <div class="crumbs" id="crumbs"></div>
     </div>
     <div class="card" style="margin-top:10px" id="table"><div class="empty">加载中…</div></div>`;
-  const current = () => Object.fromEntries(Object.entries(state).filter(([k]) => ['by', 'years', 'ytd', 'end', 'listed', 'stock', 'sort', 'who', 'customer_id', 'prod', 'class', 'group', 'state', 'type', 'owner', 'month', 'limit'].includes(k) && !(k === 'end' && state.end !== '0') && !(k === 'stock' && state.stock !== '0')));
+  const current = () => Object.fromEntries(Object.entries(state).filter(([k]) => ['by', 'years', 'ytd', 'end', 'listed', 'stock', 'sort', 'who', 'customer_id', 'prod', 'class', 'group', 'state', 'type', 'owner', 'month', 'limit'].includes(k) && !(k === 'end' && state.end !== '0') && !(k === 'stock' && state.stock === 'a,h')));
   const renderCrumbs = (labels) => {
     const keys = Object.keys(SALES_FILTERS).filter((k) => state[k]);
     $('#crumbs').innerHTML = keys.length ? keys.map((k) => `<span class="crumb"><b>${SALES_FILTERS[k]}</b> ${esc((labels && labels[k]) || state[k])} <a data-clear="${k}" title="去掉此条件">×</a></span>`).join('') + `<a class="small" id="clearAll">清除全部条件</a>` : '<span class="muted small">点击表中名称可逐层下钻：业务员 → 客户 → 产品；分类 → 产品；大类 → 分类；地区 → 客户</span>';
@@ -1150,7 +1154,7 @@ async function pageSales(view, params) {
   const load = async () => {
     setHash('sales', current());
     $('#listedBtn').classList.toggle('active', !!state.listed);
-    $('#stockBtn').classList.toggle('active', state.stock !== '0');
+    view.querySelectorAll('.stk-opts .chip[data-mkt]').forEach((c) => c.classList.toggle('active', mkts().has(c.dataset.mkt)));
     if (state.by !== 'customer') state.sort = '';
     const table = $('#table');
     table.classList.add('loading');
@@ -1189,7 +1193,8 @@ async function pageSales(view, params) {
       const max = Math.max(1, ...d.rows.map((r) => (r.cells[latest] || {}).amount || 0));
       const drill = { who: 'customer', customer: 'product', product: 'customer', class: 'product', group: 'class', region: 'customer', type: 'who', month: 'who' };
       const dimName = Object.fromEntries(SALES_DIMS);
-      const showStk = state.stock !== '0' && d.by === 'customer' && d.rows.some((r) => (r.stocks && r.stocks.length) || (r.members || []).some((m) => m.stocks && m.stocks.length));
+      const mk = mkts(), shownStk = (r) => (r.stocks || []).filter((x) => mk.has(x.market));
+      const showStk = mk.size > 0 && d.by === 'customer' && d.rows.some((r) => shownStk(r).length || (r.members || []).some((m) => shownStk(m).length));
       const stkHead = showStk ? stkHeadHtml(d.sort) : '', stkPad = showStk ? STK_EMPTY : '';
       table._stkPad = stkPad;
       table.innerHTML = `<table><thead><tr><th>#</th><th>${dimName[d.by]}</th>${stkHead}${years.map((y) => `<th class="num">${y}${d.line_mode ? ' 金额 / 数量' : ''}</th>`).join('')}<th class="num">同比</th><th class="num">合计</th><th></th></tr></thead><tbody>
@@ -1202,7 +1207,7 @@ async function pageSales(view, params) {
             const name = isGroup ? `<span class="fold" data-fold="g${idx}" title="展开 / 收起集团内各公司"><span class="tri-fold">▸</span>${esc(r.name)}</span>${(r.members.some((m) => m.customer && m.customer.severe)) ? `<span class="tag severe" title="集团内有严重逾期的公司：${esc(r.members.filter((m) => m.customer && m.customer.severe).map((m) => m.name).join('、'))}">严重逾期</span>` : ''}`
               : d.by === 'customer' ? clipName(custLink, r.customer) : d.by === 'product' ? prodLink({ model_name: r.model_name, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
             const drillable = !(d.by === 'customer' && !r.id && !isGroup);
-            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ` data-ckey="${esc(String(r.key))}"`}><td class="muted nowrap">${sub ? '└' : `<span class="row-eye${excluded.has(String(r.key)) ? ' off' : ''}" title="关掉 / 恢复：把这一行当年的销售额从年度合计里去掉">${EYE_SVG}</span>${rank}`}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small name20"${isGroup ? ` title="${esc(r.members.map((m) => m.name).join('、'))}"` : ''}>${esc(r.sub)}</div>` : ''}${viaLine(r.via)}</td>${showStk ? stkCells(r.stocks) : ''}
+            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ` data-ckey="${esc(String(r.key))}"`}><td class="muted nowrap">${sub ? '└' : `<span class="row-eye${excluded.has(String(r.key)) ? ' off' : ''}" title="关掉 / 恢复：把这一行当年的销售额从年度合计里去掉">${EYE_SVG}</span>${rank}`}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small name20"${isGroup ? ` title="${esc(r.members.map((m) => m.name).join('、'))}"` : ''}>${esc(r.sub)}</div>` : ''}${viaLine(r.via)}</td>${showStk ? stkCells(shownStk(r)) : ''}
             ${years.map((y, k) => { const c = r.cells[y] || { amount: 0, count: 0, qty: 0 }; return `<td class="num">${k === 0 ? inlineBar(c.amount, max, fmtMoney(c.amount)) : fmtMoney(c.amount)}<div class="muted small">${c.count ? `${fmtInt(c.count)} 单` : '—'}${d.line_mode && c.qty ? ` · ${fmtInt(c.qty)}` : ''}</div></td>`; }).join('')}
             <td class="num">${r.yoy == null ? '<span class="muted">—</span>' : `<span class="${r.yoy >= 0 ? 'up' : 'down'}">${r.yoy > 0 ? '+' : ''}${r.yoy}%</span>`}</td><td class="num">${fmtMoney(r.total)}</td>
             <td class="nowrap small">${drillable && drill[d.by] ? `<a data-drill="${idx}">下钻 ${dimName[drill[d.by]]}</a> · ` : ''}<a data-orders="${idx}">订单</a></td></tr>`;
@@ -1235,7 +1240,7 @@ async function pageSales(view, params) {
   $('#years').addEventListener('change', () => { const ys = [...view.querySelectorAll('#years input:checked')].map((i) => i.value); if (!ys.length) return; state.years = ys.join(','); load(); });
   $('#ytd').addEventListener('change', (e) => { state.ytd = e.target.checked ? '1' : ''; load(); });
   $('#listedBtn').addEventListener('click', () => { state.listed = state.listed ? '' : '1'; load(); });
-  $('#stockBtn').addEventListener('click', () => { state.stock = state.stock === '0' ? '1' : '0'; if (state.stock === '0') state.sort = ''; load(); });
+  view.querySelectorAll('.stk-opts .chip[data-mkt]').forEach((c) => c.addEventListener('click', () => { const set = mkts(); set.has(c.dataset.mkt) ? set.delete(c.dataset.mkt) : set.add(c.dataset.mkt); setMkts(set); if (!set.size) state.sort = ''; load(); }));
   $('#endMode').addEventListener('change', (e) => { state.end = e.target.checked ? '1' : '0'; load(); });
   $('#limit').addEventListener('change', (e) => { state.limit = e.target.value; load(); });
   bindExport(view, current);
