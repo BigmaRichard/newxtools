@@ -222,6 +222,7 @@ a + .tag.severe { margin-left: 4px; }
 .inline-bar i { position: absolute; left: 0; top: 3px; height: 12px; background: var(--s1); opacity: .25; border-radius: 0 3px 3px 0; }
 .inline-bar span { position: relative; padding-left: 4px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips .end-mode { display: inline-flex; align-items: center; gap: 4px; margin: 0 6px 0 2px; white-space: nowrap; }
 .chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
 .chip.active, .chip:hover { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
@@ -1100,11 +1101,10 @@ async function pageSales(view, params) {
   const state = { ...f, years: f.years || yearsAll.slice(0, 3).join(',') };
   view.innerHTML = `<h1>销售分析 <span class="muted small">订单金额，不含意外中止；按产品 / 分类 / 大类维度或带产品条件时用订单明细金额</span></h1>
     <div class="card" style="margin-bottom:14px">
-      <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}" ${k === 'product' ? 'title="同一型号下的各批号已合并"' : ''}>${l}</span>`).join('')}</span>
+      <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}" ${k === 'product' ? 'title="同一型号下的各批号已合并"' : ''}>${l}</span>` + (k === 'customer' ? `<label class="small end-mode" title="经代理商下的订单算到最终客户名下（订单备注“终端客户：…”、代理商订单的收货地址，或本机 data/end_customers.json 手工对照）；不勾则按下单客户"><input type="checkbox" id="endMode" ${state.end !== '0' ? 'checked' : ''}> 按最终客户</label>` : '')).join('')}</span>
         <span class="spacer"></span>
         <span class="years" id="years">${yearsAll.map((y) => `<label><input type="checkbox" value="${y}" ${state.years.split(',').includes(String(y)) ? 'checked' : ''}>${y}</label>`).join('')}</span>
         <label class="small" title="各年份只统计 1 月 1 日至今天的月日，便于与今年比较"><input type="checkbox" id="ytd" ${state.ytd ? 'checked' : ''}> 同期至今</label>
-        <label class="small" title="经代理商下的订单算到最终客户名下（订单备注“终端客户：…”、代理商订单的收货地址，或本机 data/end_customers.json 手工对照）；不勾则按下单客户"><input type="checkbox" id="endMode" ${state.end !== '0' ? 'checked' : ''}> 按最终客户</label>
         <select id="limit" class="small"><option value="100" ${state.limit === '100' ? 'selected' : ''}>前 100 行</option><option value="200" ${state.limit === '200' ? 'selected' : ''}>前 200 行</option><option value="1000" ${state.limit === '1000' ? 'selected' : ''}>前 1000 行</option></select>
         ${exportButton('sales')}
       </div>
