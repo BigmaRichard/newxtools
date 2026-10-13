@@ -44,6 +44,7 @@ from sync.store import col_name
 from web.auth import AccessControl
 from web.end_customers import EndCustomerFile, build_map as build_end_map
 from web.export import EXPORT_MAX, Download, build_export
+from web.stocks import ListedCompanies, StockQuotes
 from web.local import CustomerGroups, SevereExempt
 from web.reports import CID_EXPR, ORDER_RMB_EXPR, PRODUCT_JOIN, ReportQueries, _num, display_city
 
@@ -167,11 +168,13 @@ class Lookups:
     """内存中的小表：人员、字典、客户对照、产品、字段中文名。"""
 
     def __init__(self, conn: sqlite3.Connection, exempt: Optional[SevereExempt] = None, groups: Optional[CustomerGroups] = None,
-                 end_file: Optional[EndCustomerFile] = None):
+                 end_file: Optional[EndCustomerFile] = None, listed: Optional[ListedCompanies] = None, quotes: Optional[StockQuotes] = None):
         data_dir = Path(conn.execute("PRAGMA database_list").fetchone()[2] or "").parent
         self.exempt = exempt or SevereExempt(data_dir / "severe_exempt.json")
         self.groups = groups or CustomerGroups(data_dir / "customer_groups.json")   # 客户集团归并规则（本地文件，热加载）
         self.end_file = end_file or EndCustomerFile(data_dir / "end_customers.json")   # 订单最终客户手工对照（本地文件）
+        self.listed = listed or ListedCompanies(data_dir / "listed_companies.json")      # 上市公司客户（本地文件，热加载）
+        self.quotes = quotes or StockQuotes(data_dir / "stock_quotes.json")             # 股价（腾讯行情，缓存）
         self.users: Dict[str, Dict[str, Any]] = {}
         for r in conn.execute("SELECT part, name, status, dept FROM crm_user WHERE _deleted_at IS NULL ORDER BY id"):
             self.users[r["part"]] = {"part": r["part"], "name": r["name"] or r["part"], "active": str(r["status"]) == "0", "dept": r["dept"]}
@@ -457,7 +460,16 @@ class Lookups:
         grp = self.groups.group_of(cid, out["name"])
         if grp:
             out["group"] = grp
+        stock = self.listed.listed_of(cid, out["name"])
+        if stock:
+            out["listed"] = stock
         return out
+
+    def listed_key(self, key: Any) -> int:
+        """SQL 函数 listed_cu(客户键)：上市公司客户为 1。"""
+        cid = self.customer_id(key)
+        c = self.customers.get(cid) if cid is not None else None
+        return 1 if c and self.listed.listed_of(cid, c["cu_name"] or c["m_name"]) else 0
 
     # ---- 最终客户：注册为 SQL 函数 end_cu(o.id, o.cu_sn) / end_cid(o.id, o.cu_sn)，没有最终客户时就是下单客户
     def end_key(self, order_id: Any, cu_sn: Any) -> Any:
@@ -477,6 +489,7 @@ class Lookups:
     def register_sql(self, conn: sqlite3.Connection) -> None:
         conn.create_function("end_cu", 2, self.end_key, deterministic=True)
         conn.create_function("end_cid", 2, self.end_cid, deterministic=True)
+        conn.create_function("listed_cu", 1, self.listed_key, deterministic=True)
 
     def group_of(self, cid: Any) -> Optional[str]:
         c = self.customers.get(_int(cid, 0))
@@ -519,6 +532,8 @@ class Mirror:
         self.exempt = SevereExempt(self.path.parent / "severe_exempt.json")   # 严重逾期标记的手工解除名单（本地文件，热加载）
         self.groups = CustomerGroups(self.path.parent / "customer_groups.json")   # 客户集团归并规则（本地文件，热加载）
         self.end_file = EndCustomerFile(self.path.parent / "end_customers.json")   # 订单最终客户手工对照（本地文件，改动后重建对照表）
+        self.listed = ListedCompanies(self.path.parent / "listed_companies.json")   # 上市公司客户（本地文件，热加载）
+        self.quotes = StockQuotes(self.path.parent / "stock_quotes.json")           # 股价缓存
         self._lock = threading.Lock()
         self._lookups: Optional[Lookups] = None
         self._stamp: Any = None
@@ -542,7 +557,7 @@ class Mirror:
                 stamp = (self.stamp(conn), self.end_file.signature())
                 if self._lookups is None or stamp != self._stamp:
                     t0 = time.time()
-                    self._lookups = Lookups(conn, self.exempt, self.groups, self.end_file)
+                    self._lookups = Lookups(conn, self.exempt, self.groups, self.end_file, self.listed, self.quotes)
                     self._stamp = stamp
                     logger.info("已加载对照表：客户 %d、人员 %d、产品 %d（%.2fs）", len(self._lookups.customers), len(self._lookups.users),
                                 len(self._lookups.products), time.time() - t0)

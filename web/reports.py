@@ -15,6 +15,8 @@ import datetime as dt
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .stocks import market
+
 CANCELLED = "3"
 OPEN_PLAN_SQL = "IN ('2','4')"
 # 折算人民币：money_rate 为每 100 外币的人民币价（RMB 为 100）
@@ -23,7 +25,7 @@ ORDER_RMB_EXPR = "(CASE WHEN COALESCE(o.money_type,'') IN ('', 'RMB') OR COALESC
 CID_EXPR = ("CASE WHEN {t}.cu_sn LIKE '[id:%]' THEN CAST(substr({t}.cu_sn, 5, length({t}.cu_sn) - 5) AS INTEGER) "
             "ELSE (SELECT s.id FROM customer s WHERE s.sn = {t}.cu_sn AND s.sn <> '' LIMIT 1) END")
 SALES_DIMS = ("who", "customer", "product", "class", "group", "region", "type", "month")
-GROUP_NOTE_CHARS = 25   # 集团行小字里成员名清单最长字符数，超出以“…”截断（避免过长）
+NAME_CHARS = 20   # 销售分析客户名列最长字符数；集团行小字整行也不超过这个长度，超出以“…”截断
 # 订单明细 / 采购明细里的产品引用：产品编号 sn，或产品没有编号时为 "[id:N]"；统一按 product.id 关联
 PRODUCT_KEY = "(CASE WHEN {g}.prod LIKE '[id:%]' THEN CAST(substr({g}.prod, 5, length({g}.prod) - 5) AS INTEGER) ELSE (SELECT s.id FROM product s WHERE s.sn = {g}.prod AND s.sn <> '' LIMIT 1) END)"
 PRODUCT_JOIN = "LEFT JOIN product p ON p.id = " + PRODUCT_KEY.format(g="g")
@@ -35,11 +37,13 @@ BULK_CLASS_HINTS = ("填料", "介质", "凝胶", "树脂")
 
 
 def group_note(names: List[str]) -> str:
-    """集团行下的小字：“集团 · N 家：甲、乙…”，成员名清单最长 GROUP_NOTE_CHARS 个字符，超出截断加“…”（成员行、悬停提示仍是全名）。"""
+    """集团行下的小字：“集团 · N 家：甲、乙…”，整行最长 NAME_CHARS 个字符（不超过客户名列宽），超出截断加“…”（成员行、悬停提示仍是全名）。"""
+    head = f"集团 · {len(names)} 家："
     text = "、".join(names)
-    if len(text) > GROUP_NOTE_CHARS:
-        text = text[:GROUP_NOTE_CHARS].rstrip("、") + "…"
-    return f"集团 · {len(names)} 家：{text}"
+    room = max(NAME_CHARS - len(head), 2)
+    if len(text) > room:
+        text = text[:room - 1].rstrip("、") + "…"
+    return head + text
 
 
 def split_sn(sn: Optional[str]) -> Tuple[str, Optional[str]]:
@@ -173,6 +177,8 @@ class ReportQueries:
         if self.get("state"):
             args.extend([self.get("state"), self.get("state")])
             clauses.append(f"({col} IN (SELECT '[id:' || id || ']' FROM customer WHERE state = ?) OR {col} IN (SELECT sn FROM customer WHERE sn <> '' AND state = ?))")
+        if self.get("listed") in ("1", "on", "true"):   # 只看上市公司客户（data/listed_companies.json）
+            clauses.append(f"listed_cu({col}) = 1")
         if self.get("owner"):
             args.extend([self.get("owner"), self.get("owner")])
             clauses.append(f"({col} IN (SELECT '[id:' || id || ']' FROM customer WHERE owner = ?) OR {col} IN (SELECT sn FROM customer WHERE sn <> '' AND owner = ?))")
@@ -310,13 +316,32 @@ class ReportQueries:
             cur_a = row["cells"].get(latest, {}).get("amount", 0.0)
             prev_a = row["cells"].get(prev, {}).get("amount", 0.0) if prev else 0.0
             row["yoy"] = round((cur_a - prev_a) / abs(prev_a) * 100, 1) if prev_a else None
+        if by == "customer":
+            self._attach_stocks(ordered[:limit])
         monthly = self._sales_monthly(base, args, years) if by != "month" else None
         return {
-            "by": by, "years": years, "ytd": ytd, "end": end, "line_mode": line_mode, "total_rows": len(ordered),
+            "by": by, "years": years, "ytd": ytd, "end": end, "listed": self.get("listed") in ("1", "on", "true"), "line_mode": line_mode, "total_rows": len(ordered),
             "rows": ordered[:limit], "totals": totals,
             "monthly": monthly if monthly is not None else [{"month": r["key"], "cells": r["cells"]} for r in ordered],
             "filters": self._sales_filter_labels(),
         }
+
+    def _attach_stocks(self, rows: List[Dict[str, Any]]) -> None:
+        """客户行（及集团成员行）挂上市公司与股价：row["stocks"] = [{name, code, market A/H, price, base, change_pct, currency, …}]，
+        A 股在前、H 股在后（A+H 两地上市两条）；集团行取成员里合计最大的上市公司。"""
+        def own(r: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            return (r.get("customer") or {}).get("listed")
+        picks = []
+        for r in rows:
+            for m in r.get("members") or []:
+                if own(m):
+                    picks.append((m, own(m)))
+            st = own(r) or next((own(m) for m in sorted(r.get("members") or [], key=lambda m: -m["total"]) if own(m)), None)
+            if st:
+                picks.append((r, st))
+        quotes = self.lk.quotes.get({c for _, st in picks for c in st["codes"]}, self.today) if picks else {}
+        for r, st in picks:
+            r["stocks"] = [{"name": st["name"], "code": c, "market": market(c), **quotes.get(c, {})} for c in st["codes"]]
 
     def _merge_customer_groups(self, rows: Dict[Any, Dict[str, Any]], years: List[int]) -> Dict[Any, Dict[str, Any]]:
         """按客户的行里，属于同一集团（data/customer_groups.json 规则）的合成一行：key = "group:集团名"，
@@ -405,6 +430,8 @@ class ReportQueries:
             out["owner"] = self.lk.user_name(self.get("owner"))
         if self.get("month"):
             out["month"] = self.get("month")
+        if self.get("listed") in ("1", "on", "true"):
+            out["listed"] = "只看上市公司"
         return out
 
     def cid_col(self, alias: str) -> str:

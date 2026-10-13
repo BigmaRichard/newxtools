@@ -125,10 +125,27 @@ CHURN_COLS: List[Col] = [*_CUST_BASE, ("末单日期", lambda r: r.get("last_dat
 LOST_COLS: List[Col] = [*_CUST_BASE, ("末单日期", lambda r: r.get("last_date")), ("上年金额", lambda r: _num(r.get("prev_amount"))), ("上年单数", lambda r: r.get("prev_count"))]
 
 
+def _stock_cols(stocks: List[Dict[str, Any]]) -> List[Any]:
+    """市场 / 简称 / 代码 / 现价 / 年初 / 涨跌%；A+H 两地上市时各列以“ / ”连接（A 股在前），单一市场时价格为数字。"""
+    if not stocks:
+        return [None] * 6
+    def px(s: Dict[str, Any], v: Any) -> Any:
+        return None if v is None else (f"HK${v:.2f}" if s.get("currency") == "HKD" and len(stocks) > 1 else v)
+    cols = [[s.get("market"), s.get("name"), s.get("code"), px(s, s.get("price") or s.get("prev_close")), px(s, s.get("base")), s.get("change_pct")] for s in stocks]
+    if len(cols) == 1:
+        return cols[0]
+    def text(i: int, v: Any) -> str:
+        return "—" if v is None else (f"{v:.1f}" if i == 5 else f"{v:.2f}") if isinstance(v, float) else str(v)
+    return [" / ".join(text(i, v) for v in vals) if i != 1 else stocks[0].get("name") for i, vals in enumerate(zip(*cols))]
+
+
 def _sales_sheet(res: Dict[str, Any]) -> Tuple[Sequence[str], List[List[Any]]]:
     years = [str(y) for y in res["years"]]
     line = res.get("line_mode")
     headers = ["名称", "说明"]
+    stk = res.get("by") == "customer" and any(r.get("stocks") or any(m.get("stocks") for m in r.get("members") or []) for r in res["rows"])
+    if stk:
+        headers += ["市场", "股票简称", "代码", "现价", "年初", "涨跌%"]
     for y in years:
         headers += [f"{y} 金额", f"{y} 单数"] + ([f"{y} 数量"] if line else [])
     headers += ["合计", "同比%"]
@@ -139,6 +156,8 @@ def _sales_sheet(res: Dict[str, Any]) -> Tuple[Sequence[str], List[List[Any]]]:
 
     def line_of(r: Dict[str, Any], indent: str = "") -> List[Any]:
         row: List[Any] = [indent + str(r.get("name") or ""), r.get("sub")]
+        if stk:
+            row += _stock_cols(r.get("stocks") or [])
         for y in years:
             c = r["cells"].get(y) or {}
             row += [_num(c.get("amount", 0)), c.get("count", 0)] + ([_num(c.get("qty", 0))] if line else [])

@@ -1034,7 +1034,7 @@ def test_customer_groups_merge_in_sales(tmp_path):
     grp = next(r for r in res["rows"] if r.get("members"))
     assert grp["key"] == "group:药明康德" and grp["name"] == "药明康德" and grp["total"] == 5500.0 and grp["count"] == 2
     assert [m["name"] for m in grp["members"]] == ["泰兴合全药业有限公司", "常州合全药业有限公司"] and sorted(grp["customer_ids"]) == [41, 42]
-    assert grp["cells"][str(THIS_YEAR)]["amount"] == 5500.0 and grp["sub"] == "集团 · 2 家：泰兴合全药业有限公司、常州合全药业有限公司"
+    assert grp["cells"][str(THIS_YEAR)]["amount"] == 5500.0 and grp["sub"] == "集团 · 2 家：泰兴合全药业有限公司…"
     assert res["rows"][0]["key"] == "group:药明康德"                                  # 5500 > 药明生物 4000，按集团合计排
     assert not any(r["name"] in ("泰兴合全药业有限公司", "常州合全药业有限公司") for r in res["rows"])
     # 多客户 id 下钻与看订单
@@ -1049,13 +1049,14 @@ def test_customer_groups_merge_in_sales(tmp_path):
 
 
 def test_group_note_caps_member_names():
-    """集团行小字：成员名清单最长 25 个字符，超出截断加“…”；家数照实。"""
-    from web.reports import GROUP_NOTE_CHARS, group_note
-    assert GROUP_NOTE_CHARS == 25
-    assert group_note(["泰兴合全药业有限公司", "常州合全药业有限公司"]) == "集团 · 2 家：泰兴合全药业有限公司、常州合全药业有限公司"
-    note = group_note(["四川科伦药业股份有限公司邛崃分公司", "四川科伦药物研究院有限公司", "四川科伦药业股份有限公司邛崃分公司-色谱柱"])
-    assert note == "集团 · 3 家：四川科伦药业股份有限公司邛崃分公司、四川科伦药物研…" and len(note.split("：", 1)[1]) == GROUP_NOTE_CHARS + 1
-    assert group_note(["甲" * 24, "乙"]) == "集团 · 2 家：" + "甲" * 24 + "…"      # 截断点落在“、”上时不留顿号
+    """集团行小字：整行最长 NAME_CHARS（20）个字符，不超过客户名列宽，超出截断加“…”；家数照实。"""
+    from web.reports import NAME_CHARS, group_note
+    assert NAME_CHARS == 20
+    assert group_note(["合全", "药明"]) == "集团 · 2 家：合全、药明"
+    note = group_note(["四川科伦药业股份有限公司邛崃分公司", "四川科伦药物研究院有限公司"])
+    assert note == "集团 · 2 家：四川科伦药业股份有限…" and len(note) == NAME_CHARS
+    assert group_note(["甲" * 9, "乙" * 4]) == "集团 · 2 家：" + "甲" * 9 + "…"      # 截断点落在“、”上时不留顿号
+    assert len(group_note(["某"] * 120)) <= NAME_CHARS
 
 
 def test_end_customer_attribution(tmp_path):
@@ -1122,3 +1123,66 @@ def test_end_customer_attribution(tmp_path):
     mirror._checked = 0
     lk2 = mirror.lookups(conn)
     assert lk2 is not lk and lk2.end_of[305] == (51, "手工") and lk2.end_of[304] == (55, "收货地址")
+
+
+def test_listed_companies_and_quotes(tmp_path):
+    """上市公司：data/listed_companies.json 匹配客户（片段 / 排除），销售分析 listed=1 只看上市公司客户，
+    客户行与集团行挂股票与股价（现价、前复权年初价、涨跌幅；行情用假数据）。"""
+    import json as _json
+    from web.stocks import StockQuotes
+    path = tmp_path / "listed.sqlite"
+    store = Store(path)
+    seed(store)
+    y = str(THIS_YEAR)
+    base = {"sn": "", "m_name": "", "life": "2", "cu_status": "1", "owner": "M9", "type": "1", "city": "连云港市", "state": "10", "district": "", "creatdate": "2024-01-01", "moddate": "2026-01-01", "contact": []}
+    custs = [{**base, "id": "61", "cu_name": "江苏恒瑞医药股份有限公司"}, {**base, "id": "62", "cu_name": "山东盛迪医药有限公司"},
+             {**base, "id": "63", "cu_name": "江苏海悦康医药科技有限公司"}, {**base, "id": "64", "cu_name": "安徽悦康凯悦制药有限公司"}]
+    orders = [{"id": str(400 + i), "No.": f"mw{y}0740{i}", "subject": "柱", "cu_sn": f"[id:{cid}]", "type": "1", "status": "2", "confirm": "2", "st_send": "4", "sum": amt,
+               "who": "王勇尊", "date": f"{y}-07-01", "end_date": f"{y}-07-01", "money_type": "RMB",
+               "goods": [{"id": f"{400 + i}1", "prod": "08086-31", "prod_name": "πNAP", "amount": "1.000", "un_price": amt, "sum": amt}]}
+              for i, (cid, amt) in enumerate([(61, "1000.00"), (62, "500.00"), (63, "700.00"), (64, "300.00")])]
+    store.upsert_raw("customer", custs)
+    store.upsert_normalized(SPEC_BY_DT["customer"], custs)
+    store.upsert_raw("contract", orders)
+    store.upsert_normalized(SPEC_BY_DT["contract"], orders)
+    store.close()
+    (tmp_path / "listed_companies.json").write_text(_json.dumps([
+        {"name": "恒瑞医药", "code": "sh600276", "h_code": "hk01276", "patterns": ["恒瑞医药", "盛迪医药"]},
+        {"name": "悦康药业", "code": "sh688658", "patterns": ["悦康"], "exclude": [63]}], ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "customer_groups.json").write_text(_json.dumps([{"name": "恒瑞集团", "patterns": ["恒瑞医药", "盛迪医药"]}], ensure_ascii=False), encoding="utf-8")
+
+    def fake(url):
+        if "qt.gtimg.cn" in url:
+            return ('v_sh600276="1~恒瑞医药~600276~45.51~46.05' + "~0" * 25 + '~20261013161446~-0.54";\n'
+                    'v_sh688658="1~悦康药业~688658~20.00~19.50' + "~0" * 25 + '~20261013161446~0.5";\n'
+                    'v_hk01276="100~恒瑞医药~01276~60.00~61.00' + "~0" * 25 + '~2026/10/13 16:08:32~-1";')
+        code = url.split("param=")[1].split(",")[0]
+        close = {"sh600276": "60.68", "sh688658": "25.00", "hk01276": "50.00"}[code]
+        return _json.dumps({"code": 0, "data": {code: {"qfqday": [[f"{THIS_YEAR - 1}-12-31", "1", close, "1", "1", "1"]]}}})
+
+    mirror = Mirror(path)
+    mirror.quotes = StockQuotes(tmp_path / "stock_quotes.json", fetch=fake)
+    conn = mirror.connect()
+    lk = mirror.lookups(conn)
+    for code in ("sh600276", "sh688658", "hk01276"):
+        lk.quotes._year_base(code, THIS_YEAR)     # 年初价后台补，测试里直接补齐
+    query = lambda **p: Query(conn, lk, {k: str(v) for k, v in p.items()})  # noqa: E731
+
+    assert lk.customer("[id:62]")["listed"] == {"name": "恒瑞医药", "code": "sh600276", "codes": ["sh600276", "hk01276"]} and "listed" not in lk.customer("[id:63]")
+    res = query(by="customer", years=THIS_YEAR, listed=1).sales()
+    assert res["listed"] and res["filters"]["listed"] == "只看上市公司" and res["totals"][y]["amount"] == 1800.0   # 海悦康 700 不算
+    grp = next(r for r in res["rows"] if r["key"] == "group:恒瑞集团")
+    a, h = grp["stocks"]                                                                   # A 股在前、H 股在后
+    assert (a["market"], a["code"], a["price"], a["base"], a["change_pct"], a["currency"]) == ("A", "sh600276", 45.51, 60.68, -25.0, "CNY")
+    assert (h["market"], h["code"], h["price"], h["base"], h["change_pct"], h["currency"]) == ("H", "hk01276", 60.0, 50.0, 20.0, "HKD")
+    assert all(m["stocks"][0]["name"] == "恒瑞医药" for m in grp["members"])
+    yk = next(r for r in res["rows"] if r.get("id") == 64)
+    assert [s["market"] for s in yk["stocks"]] == ["A"] and yk["stocks"][0]["change_pct"] == -20.0
+    full = query(by="customer", years=THIS_YEAR).sales()
+    assert full["totals"][y]["amount"] > 2500.0 and next(r for r in full["rows"] if r.get("id") == 63).get("stocks") is None
+    from web.export import _sales_sheet
+    headers, sheet = _sales_sheet(res)
+    assert headers[2:8] == ["市场", "股票简称", "代码", "现价", "年初", "涨跌%"]
+    assert sheet[0][2:8] == ["A / H", "恒瑞医药", "sh600276 / hk01276", "45.51 / HK$60.00", "60.68 / HK$50.00", "-25.0 / 20.0"]
+    assert next(r for r in sheet if r[0] == "安徽悦康凯悦制药有限公司")[2:8] == ["A", "悦康药业", "sh688658", 20.0, 25.0, -20.0]
+    assert query(by="who", years=THIS_YEAR, listed=1).sales()["totals"][y]["amount"] == 1800.0               # 其他维度也按上市公司筛

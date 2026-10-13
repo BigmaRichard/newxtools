@@ -222,6 +222,13 @@ a + .tag.severe { margin-left: 4px; }
 .inline-bar i { position: absolute; left: 0; top: 3px; height: 12px; background: var(--s1); opacity: .25; border-radius: 0 3px 3px 0; }
 .inline-bar span { position: relative; padding-left: 4px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-gu { display: inline-block; padding: 0 3px; border: 1px solid #d0021b; border-radius: 3px; color: #d0021b; font-size: 11px; line-height: 15px; font-weight: 600; vertical-align: 1px; }
+.tag-gu.h { border-color: #7b3fbf; color: #7b3fbf; }
+.stk { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stk-line { line-height: 20px; white-space: nowrap; }
+.stk-line + .stk-line { margin-top: 2px; }
+.stk-up { color: #d0021b; } .stk-down { color: #1a9a3a; }
+.name20 { display: block; max-width: 20em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chips .end-mode { display: inline-flex; align-items: center; gap: 4px; margin: 0 6px 0 2px; white-space: nowrap; }
 .chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
 .chip.active, .chip:hover { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
@@ -523,9 +530,24 @@ const dateFlag = (f, d) => f === 'future'
 // 严重逾期标记：后端在客户对象上给 severe = {days, amount, count, since}（有逾期超过 90 天的未回款计划）
 const severeTag = (c) => c && c.severe ? `<span class="tag severe" title="最久逾期 ${c.severe.days} 天 · 逾期超 90 天的有 ${c.severe.count} 期共 ${fmtMoney(c.severe.amount)} · 最早计划日期 ${esc(c.severe.since)}">严重逾期</span>` : '';
 const custLink = (c) => c ? (c.id ? `<a data-cust="${c.id}">${esc(c.name)}</a>${severeTag(c)}` : esc(c.name) + severeTag(c)) : '<span class="muted">—</span>';
+// 销售分析客户名：最长 20 个字符，超出截断加“…”，悬停看全名
+const clipName = (link, c) => !c || !c.name || c.name.length <= 20 ? link(c) : `<span title="${esc(c.name)}">${link({ ...c, name: c.name.slice(0, 19) + '…' })}</span>`;
+// 上市公司股票列（row.stocks，见 web/stocks.py）：A 股在前、H 股在后，两地上市各一行；四列各自对齐
+const STK_HEAD = '<th>股票</th><th class="num">现价</th><th class="num">年初</th><th class="num">涨跌</th>';
+const STK_EMPTY = '<td></td><td></td><td></td><td></td>';
+const stkCells = (list) => {
+  if (!list || !list.length) return STK_EMPTY;
+  const px = (s, v) => v == null ? '<span class="muted">—</span>' : (s.currency === 'HKD' ? '<span class="muted">HK$</span>' : '') + Number(v).toFixed(2);
+  const tip = (s) => `${s.name} ${s.code}${s.time ? ' · 行情 ' + s.time : ''}；年初 = 上一年最后一个交易日收盘价（前复权）`;
+  const col = (fn, cls) => `<td class="${cls}">${list.map((s) => `<div class="stk-line" title="${esc(tip(s))}">${fn(s)}</div>`).join('')}</td>`;
+  return col((s) => `<span class="tag-gu ${s.market === 'H' ? 'h' : ''}">${s.market}股</span> ${esc(s.name)} <span class="muted small">${esc(s.code.replace(/^[a-z]+/i, ''))}</span>`, 'nowrap')
+    + col((s) => px(s, s.price || s.prev_close), 'num stk')
+    + col((s) => px(s, s.base), 'num stk muted')
+    + col((s) => s.change_pct == null ? '<span class="muted">—</span>' : `<b class="${s.change_pct >= 0 ? 'stk-up' : 'stk-down'}">${s.change_pct > 0 ? '+' : ''}${s.change_pct.toFixed(1)}%</b>`, 'num stk');
+};
 // 订单的最终客户（经代理商下单时的终端客户；后端 order.end_customer = {id, name, …, source}）
 const endLine = (o) => o.end_customer ? `<div class="muted small" title="依据：${esc(o.end_customer.source || '')}">最终客户 ${custLink(o.end_customer)}</div>` : '';
-const viaLine = (via) => via && via.length ? `<div class="muted small" title="${esc(via.map((v) => `${v.name}：${fmtMoney(v.amount)}（${v.count} 单）`).join('\n'))}">经代理 ${esc(via.slice(0, 3).map((v) => `${v.name} ${fmtWan(v.amount)}`).join('、'))}${via.length > 3 ? ` 等 ${via.length} 家` : ''}</div>` : '';
+const viaLine = (via) => via && via.length ? `<div class="muted small name20" title="${esc(via.map((v) => `${v.name}：${fmtMoney(v.amount)}（${v.count} 单）`).join('\n'))}">经代理 ${esc(via.slice(0, 3).map((v) => `${v.name} ${fmtWan(v.amount)}`).join('、'))}${via.length > 3 ? ` 等 ${via.length} 家` : ''}</div>` : '';
 // 拜访频度：后端 customer.visits = {visits 累计上门, visits_12m 近一年上门, last_visit, days_since, contacts_12m 近一年电话微信等, logs 日志条数, last_log}；没有日志为 null
 const visitCell = (c) => {
   const v = c.visits;
@@ -1094,14 +1116,14 @@ async function pageActions(view, params) {
 
 // ------------------------------------------------------------------ 页面：销售分析（0.5）
 const SALES_DIMS = [['who', '业务员'], ['customer', '客户'], ['product', '产品型号'], ['class', '产品分类'], ['group', '产品大类'], ['region', '地区'], ['type', '订单类型'], ['month', '月份']];
-const SALES_FILTERS = { who: '业务员', customer_id: '客户', prod: '产品型号', class: '分类', group: '大类', state: '地区', type: '类型', owner: '所有者', month: '月份' };
+const SALES_FILTERS = { listed: '范围', who: '业务员', customer_id: '客户', prod: '产品型号', class: '分类', group: '大类', state: '地区', type: '类型', owner: '所有者', month: '月份' };
 async function pageSales(view, params) {
-  const f = { by: 'who', years: '', ytd: '', end: '1', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
+  const f = { by: 'who', years: '', ytd: '', end: '1', listed: '', who: '', customer_id: '', prod: '', class: '', group: '', state: '', type: '', owner: '', month: '', limit: '100', ...params };
   const yearsAll = META.years.slice(0, 8);
   const state = { ...f, years: f.years || yearsAll.slice(0, 3).join(',') };
   view.innerHTML = `<h1>销售分析 <span class="muted small">订单金额，不含意外中止；按产品 / 分类 / 大类维度或带产品条件时用订单明细金额</span></h1>
     <div class="card" style="margin-bottom:14px">
-      <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}" ${k === 'product' ? 'title="同一型号下的各批号已合并"' : ''}>${l}</span>` + (k === 'customer' ? `<label class="small end-mode" title="经代理商下的订单算到最终客户名下（订单备注“终端客户：…”、代理商订单的收货地址，或本机 data/end_customers.json 手工对照）；不勾则按下单客户"><input type="checkbox" id="endMode" ${state.end !== '0' ? 'checked' : ''}> 按最终客户</label>` : '')).join('')}</span>
+      <div class="toolbar"><span class="chips" id="dims">${SALES_DIMS.map(([k, l]) => `<span class="chip ${state.by === k ? 'active' : ''}" data-by="${k}" ${k === 'product' ? 'title="同一型号下的各批号已合并"' : ''}>${l}</span>` + (k === 'customer' ? `<label class="small end-mode" title="经代理商下的订单算到最终客户名下（订单备注“终端客户：…”、代理商订单的收货地址，或本机 data/end_customers.json 手工对照）；不勾则按下单客户"><input type="checkbox" id="endMode" ${state.end !== '0' ? 'checked' : ''}> 按最终客户</label>` : '')).join('')}<span class="chip ${state.listed ? 'active' : ''}" id="listedBtn" title="只看上市公司客户（本机 data/listed_companies.json；含子公司 / 分公司）；按客户看时有上市公司的页面多出股票 / 现价 / 年初 / 涨跌四列（A 股、H 股分开）">上市公司</span></span>
         <span class="spacer"></span>
         <span class="years" id="years">${yearsAll.map((y) => `<label><input type="checkbox" value="${y}" ${state.years.split(',').includes(String(y)) ? 'checked' : ''}>${y}</label>`).join('')}</span>
         <label class="small" title="各年份只统计 1 月 1 日至今天的月日，便于与今年比较"><input type="checkbox" id="ytd" ${state.ytd ? 'checked' : ''}> 同期至今</label>
@@ -1112,7 +1134,7 @@ async function pageSales(view, params) {
     </div>
     <div class="grid row2"><div class="card"><h2>按月对比 <span class="count" id="chartNote"></span></h2><div class="legend" id="legend"></div><div id="chart"></div></div><div class="card" id="totals"></div></div>
     <div class="card" style="margin-top:14px" id="table"><div class="empty">加载中…</div></div>`;
-  const current = () => Object.fromEntries(Object.entries(state).filter(([k]) => ['by', 'years', 'ytd', 'end', 'who', 'customer_id', 'prod', 'class', 'group', 'state', 'type', 'owner', 'month', 'limit'].includes(k) && !(k === 'end' && state.end !== '0')));
+  const current = () => Object.fromEntries(Object.entries(state).filter(([k]) => ['by', 'years', 'ytd', 'end', 'listed', 'who', 'customer_id', 'prod', 'class', 'group', 'state', 'type', 'owner', 'month', 'limit'].includes(k) && !(k === 'end' && state.end !== '0')));
   const renderCrumbs = (labels) => {
     const keys = Object.keys(SALES_FILTERS).filter((k) => state[k]);
     $('#crumbs').innerHTML = keys.length ? keys.map((k) => `<span class="crumb"><b>${SALES_FILTERS[k]}</b> ${esc((labels && labels[k]) || state[k])} <a data-clear="${k}" title="去掉此条件">×</a></span>`).join('') + `<a class="small" id="clearAll">清除全部条件</a>` : '<span class="muted small">点击表中名称可逐层下钻：业务员 → 客户 → 产品；分类 → 产品；大类 → 分类；地区 → 客户</span>';
@@ -1122,6 +1144,7 @@ async function pageSales(view, params) {
   const excluded = new Set();   // 明细表里被小眼睛关掉的行（key；集团行为 "group:名称"），只在本页面内有效
   const load = async () => {
     setHash('sales', current());
+    $('#listedBtn').classList.toggle('active', !!state.listed);
     const table = $('#table');
     table.classList.add('loading');
     try {
@@ -1152,24 +1175,27 @@ async function pageSales(view, params) {
         const tt = adjTotals();
         table.querySelectorAll('tr[data-ckey]').forEach((tr) => { const on = excluded.has(tr.dataset.ckey); tr.classList.toggle('cut-off', on); const eye = tr.querySelector('.row-eye'); if (eye) eye.classList.toggle('off', on); });
         const total = table.querySelector('tr.total');
-        if (total) total.innerHTML = `<td></td><td>合计${excluded.size ? ` <span class="muted small">（已关掉 ${offRows().length} 行）</span>` : ''}</td>${years.map((y) => `<td class="num">${fmtMoney(tt[y].amount)}<div class="muted small">${fmtInt(tt[y].count)} 单${d.line_mode ? ` · ${fmtInt(tt[y].qty)}` : ''}</div></td>`).join('')}<td class="num">${years.length > 1 ? yoyText(tt[years[0]].amount, tt[years[1]].amount) : '<span class="muted">—</span>'}</td><td class="num">${fmtMoney(years.reduce((a, y) => a + tt[y].amount, 0))}</td><td></td>`;
+        if (total) total.innerHTML = `<td></td><td>合计${excluded.size ? ` <span class="muted small">（已关掉 ${offRows().length} 行）</span>` : ''}</td>${table._stkPad || ''}${years.map((y) => `<td class="num">${fmtMoney(tt[y].amount)}<div class="muted small">${fmtInt(tt[y].count)} 单${d.line_mode ? ` · ${fmtInt(tt[y].qty)}` : ''}</div></td>`).join('')}<td class="num">${years.length > 1 ? yoyText(tt[years[0]].amount, tt[years[1]].amount) : '<span class="muted">—</span>'}</td><td class="num">${fmtMoney(years.reduce((a, y) => a + tt[y].amount, 0))}</td><td></td>`;
       };
       renderTotals();
       // 明细表
       const max = Math.max(1, ...d.rows.map((r) => (r.cells[latest] || {}).amount || 0));
       const drill = { who: 'customer', customer: 'product', product: 'customer', class: 'product', group: 'class', region: 'customer', type: 'who', month: 'who' };
       const dimName = Object.fromEntries(SALES_DIMS);
-      table.innerHTML = `<table><thead><tr><th>#</th><th>${dimName[d.by]}</th>${years.map((y) => `<th class="num">${y}${d.line_mode ? ' 金额 / 数量' : ''}</th>`).join('')}<th class="num">同比</th><th class="num">合计</th><th></th></tr></thead><tbody>
-        <tr class="total"><td></td><td>合计</td>${years.map((y) => `<td class="num">${fmtMoney((d.totals[y] || {}).amount)}<div class="muted small">${fmtInt((d.totals[y] || {}).count)} 单${d.line_mode ? ` · ${fmtInt((d.totals[y] || {}).qty)}` : ''}</div></td>`).join('')}<td class="num">${years.length > 1 ? yoyText((d.totals[latest] || {}).amount, (d.totals[years[1]] || {}).amount) : '—'}</td><td class="num">${fmtMoney(years.reduce((s, y) => s + ((d.totals[y] || {}).amount || 0), 0))}</td><td></td></tr>
+      const showStk = d.by === 'customer' && d.rows.some((r) => (r.stocks && r.stocks.length) || (r.members || []).some((m) => m.stocks && m.stocks.length));
+      const stkHead = showStk ? STK_HEAD : '', stkPad = showStk ? STK_EMPTY : '';
+      table._stkPad = stkPad;
+      table.innerHTML = `<table><thead><tr><th>#</th><th>${dimName[d.by]}</th>${stkHead}${years.map((y) => `<th class="num">${y}${d.line_mode ? ' 金额 / 数量' : ''}</th>`).join('')}<th class="num">同比</th><th class="num">合计</th><th></th></tr></thead><tbody>
+        <tr class="total"><td></td><td>合计</td>${stkPad}${years.map((y) => `<td class="num">${fmtMoney((d.totals[y] || {}).amount)}<div class="muted small">${fmtInt((d.totals[y] || {}).count)} 单${d.line_mode ? ` · ${fmtInt((d.totals[y] || {}).qty)}` : ''}</div></td>`).join('')}<td class="num">${years.length > 1 ? yoyText((d.totals[latest] || {}).amount, (d.totals[years[1]] || {}).amount) : '—'}</td><td class="num">${fmtMoney(years.reduce((s, y) => s + ((d.totals[y] || {}).amount || 0), 0))}</td><td></td></tr>
         ${(() => {
           // 集团行（按客户维度、data/customer_groups.json 归并出的）下面挂成员行，点集团名展开；flat 里按渲染顺序放所有行，供下钻 / 订单按下标取
           const flat = [];
           const rowHtml = (r, idx, rank, sub) => {
             const isGroup = !!(r.members && r.members.length);
             const name = isGroup ? `<span class="fold" data-fold="g${idx}" title="展开 / 收起集团内各公司"><span class="tri-fold">▸</span>${esc(r.name)}</span>${(r.members.some((m) => m.customer && m.customer.severe)) ? `<span class="tag severe" title="集团内有严重逾期的公司：${esc(r.members.filter((m) => m.customer && m.customer.severe).map((m) => m.name).join('、'))}">严重逾期</span>` : ''}`
-              : d.by === 'customer' ? custLink(r.customer) : d.by === 'product' ? prodLink({ model_name: r.model_name, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
+              : d.by === 'customer' ? clipName(custLink, r.customer) : d.by === 'product' ? prodLink({ model_name: r.model_name, name: r.name }) : d.by === 'who' ? whoLink(r.name) : esc(r.name);
             const drillable = !(d.by === 'customer' && !r.id && !isGroup);
-            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ` data-ckey="${esc(String(r.key))}"`}><td class="muted nowrap">${sub ? '└' : `<span class="row-eye${excluded.has(String(r.key)) ? ' off' : ''}" title="关掉 / 恢复：把这一行当年的销售额从年度合计里去掉">${EYE_SVG}</span>${rank}`}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small"${isGroup ? ` title="${esc(r.members.map((m) => m.name).join('、'))}"` : ''}>${esc(r.sub)}</div>` : ''}${viaLine(r.via)}</td>
+            return `<tr${sub ? ` class="sub" data-sub="${sub}" hidden` : ` data-ckey="${esc(String(r.key))}"`}><td class="muted nowrap">${sub ? '└' : `<span class="row-eye${excluded.has(String(r.key)) ? ' off' : ''}" title="关掉 / 恢复：把这一行当年的销售额从年度合计里去掉">${EYE_SVG}</span>${rank}`}</td><td class="drill lead">${name}${r.sub ? `<div class="muted small name20"${isGroup ? ` title="${esc(r.members.map((m) => m.name).join('、'))}"` : ''}>${esc(r.sub)}</div>` : ''}${viaLine(r.via)}</td>${showStk ? stkCells(r.stocks) : ''}
             ${years.map((y, k) => { const c = r.cells[y] || { amount: 0, count: 0, qty: 0 }; return `<td class="num">${k === 0 ? inlineBar(c.amount, max, fmtMoney(c.amount)) : fmtMoney(c.amount)}<div class="muted small">${c.count ? `${fmtInt(c.count)} 单` : '—'}${d.line_mode && c.qty ? ` · ${fmtInt(c.qty)}` : ''}</div></td>`; }).join('')}
             <td class="num">${r.yoy == null ? '<span class="muted">—</span>' : `<span class="${r.yoy >= 0 ? 'up' : 'down'}">${r.yoy > 0 ? '+' : ''}${r.yoy}%</span>`}</td><td class="num">${fmtMoney(r.total)}</td>
             <td class="nowrap small">${drillable && drill[d.by] ? `<a data-drill="${idx}">下钻 ${dimName[drill[d.by]]}</a> · ` : ''}<a data-orders="${idx}">订单</a></td></tr>`;
@@ -1181,12 +1207,12 @@ async function pageSales(view, params) {
             return h;
           }).join('');
           table._flat = flat;
-          return html || `<tr><td colspan="${years.length + 5}" class="empty">没有数据</td></tr>`;
+          return html || `<tr><td colspan="${years.length + 5 + (showStk ? 4 : 0)}" class="empty">没有数据</td></tr>`;
         })()}
       </tbody></table>`;
       const filterFor = (r) => ({ who: { who: r.key }, customer: { customer_id: r.customer_ids ? r.customer_ids.join(',') : r.id }, product: { prod: r.model_name }, class: { class: r.key }, group: { group: r.key }, region: { state: r.key }, type: { type: r.key }, month: { month: `${latest}-${r.key}` } }[d.by]);
       const rowAt = (i) => table._flat[Number(i)];
-      table.querySelectorAll('a[data-drill]').forEach((a) => a.addEventListener('click', () => { const r = rowAt(a.dataset.drill); Object.assign(state, filterFor(r)); state.by = drill[d.by]; view.querySelectorAll('#dims .chip').forEach((c) => c.classList.toggle('active', c.dataset.by === state.by)); load(); }));
+      table.querySelectorAll('a[data-drill]').forEach((a) => a.addEventListener('click', () => { const r = rowAt(a.dataset.drill); Object.assign(state, filterFor(r)); state.by = drill[d.by]; view.querySelectorAll('#dims .chip[data-by]').forEach((c) => c.classList.toggle('active', c.dataset.by === state.by)); load(); }));
       table.querySelectorAll('a[data-orders]').forEach((a) => a.addEventListener('click', () => { const r = rowAt(a.dataset.orders); const q = { who: state.who, customer_id: state.customer_id, prod: state.prod, class: state.class, group: state.group, state: state.state, type: state.type, owner: state.owner, month: state.month, ...filterFor(r) };
         if (!q.month) { q.from = `${latest}-01-01`; q.to = d.ytd ? `${latest}-${META.today.slice(5)}` : `${latest}-12-31`; } go('orders', q); }));
       table.querySelectorAll('.row-eye').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); const k = el.closest('tr').dataset.ckey; excluded.has(k) ? excluded.delete(k) : excluded.add(k); renderTotals(); syncTable(); }));
@@ -1196,9 +1222,10 @@ async function pageSales(view, params) {
     } catch (e) { table.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
     table.classList.remove('loading');
   };
-  view.querySelectorAll('#dims .chip').forEach((c) => c.addEventListener('click', () => { state.by = c.dataset.by; view.querySelectorAll('#dims .chip').forEach((x) => x.classList.toggle('active', x === c)); load(); }));
+  view.querySelectorAll('#dims .chip[data-by]').forEach((c) => c.addEventListener('click', () => { state.by = c.dataset.by; view.querySelectorAll('#dims .chip[data-by]').forEach((x) => x.classList.toggle('active', x === c)); load(); }));
   $('#years').addEventListener('change', () => { const ys = [...view.querySelectorAll('#years input:checked')].map((i) => i.value); if (!ys.length) return; state.years = ys.join(','); load(); });
   $('#ytd').addEventListener('change', (e) => { state.ytd = e.target.checked ? '1' : ''; load(); });
+  $('#listedBtn').addEventListener('click', () => { state.listed = state.listed ? '' : '1'; load(); });
   $('#endMode').addEventListener('change', (e) => { state.end = e.target.checked ? '1' : '0'; load(); });
   $('#limit').addEventListener('change', (e) => { state.limit = e.target.value; load(); });
   bindExport(view, current);
