@@ -308,7 +308,7 @@ td.drill a { font-weight: 500; }
 tr.total td { font-weight: 600; background: var(--surface-2); }
 tr.cgroup td { background: var(--accent-soft); border-top: 2px solid var(--border); }   /* 应收表：同一客户的累计合并行 */
 tr.cgroup td.lead a { font-weight: 600; }
-tr.cmember td.lead a { color: var(--text-2); font-weight: 400; }                       /* 归拢在合并行下面的各期：客户名淡一点，合并行更醒目 */
+tr.cmember td.lead a { color: var(--text-2); font-weight: 400; display: inline-block; margin-left: 2em; }   /* 归拢在合并行下面的各期：客户名淡一点并向后退两格，合并行更醒目 */
 td.idx, th.idx { width: 34px; padding-left: 4px; padding-right: 4px; font-variant-numeric: tabular-nums; }
 .mini.tall { height: 70px; }
 .mini i.act { background: var(--s3); }
@@ -380,6 +380,7 @@ td.idx, th.idx { width: 34px; padding-left: 4px; padding-right: 4px; font-varian
   table[data-cards] tbody tr.total { background: var(--accent-soft); }
   table[data-cards] tbody tr.cgroup { background: var(--accent-soft); border-color: var(--accent); }
   table[data-cards] tbody tr.cgroup td { border-top: none; }
+  table[data-cards] tbody tr.cmember td.lead a { margin-left: 0; }                  /* 卡片里客户名是标题，不缩进 */
   table[data-cards] tbody tr.sub { background: var(--bc, var(--surface-2)); }      /* 多批次订单展开后的每一行，整张小卡按批次上色 */
   table[data-cards] tbody tr.click:active { background: var(--accent-soft); }
   table[data-cards] tbody td { border: none; padding: 2px 0; display: flex; gap: 10px; align-items: baseline; text-align: left; white-space: normal; }
