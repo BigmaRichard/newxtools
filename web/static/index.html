@@ -308,6 +308,7 @@ td.drill a { font-weight: 500; }
 tr.total td { font-weight: 600; background: var(--surface-2); }
 tr.cgroup td { background: var(--accent-soft); border-top: 2px solid var(--border); }   /* 应收表：同一客户的累计合并行 */
 tr.cgroup td.lead a { font-weight: 600; }
+tr.cgroup td.gtag { text-align: right; padding-right: 2px; }                              /* “累计 N 期”靠右，贴着客户名 */
 tr.cmember td.lead a { color: var(--text-2); font-weight: 400; display: inline-block; margin-left: 2em; }   /* 归拢在合并行下面的各期：客户名淡一点并向后退两格，合并行更醒目 */
 td.idx, th.idx { width: 34px; padding-left: 4px; padding-right: 4px; font-variant-numeric: tabular-nums; }
 .mini.tall { height: 70px; }
@@ -380,7 +381,8 @@ td.idx, th.idx { width: 34px; padding-left: 4px; padding-right: 4px; font-varian
   table[data-cards] tbody tr.total { background: var(--accent-soft); }
   table[data-cards] tbody tr.cgroup { background: var(--accent-soft); border-color: var(--accent); }
   table[data-cards] tbody tr.cgroup td { border-top: none; }
-  table[data-cards] tbody tr.cmember td.lead a { margin-left: 0; }                  /* 卡片里客户名是标题，不缩进 */
+  table[data-cards] tbody tr.cmember td.lead a { margin-left: 0; }
+  table[data-cards] tbody tr.cgroup td.gtag { text-align: left; padding-right: 0; }                  /* 卡片里客户名是标题，不缩进 */
   table[data-cards] tbody tr.sub { background: var(--bc, var(--surface-2)); }      /* 多批次订单展开后的每一行，整张小卡按批次上色 */
   table[data-cards] tbody tr.click:active { background: var(--accent-soft); }
   table[data-cards] tbody td { border: none; padding: 2px 0; display: flex; gap: 10px; align-items: baseline; text-align: left; white-space: normal; }
@@ -1009,7 +1011,7 @@ async function tabPlans(body, params) {
         if (!c || c.count < 2 || seenCust.has(p.cu_key)) return '';
         seenCust.add(p.cu_key);
         const elsewhere = c.count - (onPage[p.cu_key] || 0);
-        return `<tr class="cgroup" title="当前筛选下该客户的累计（含其他页）"><td class="num idx muted small">∑</td><td class="nowrap"><span class="tag ${c.overdue_count ? 'bad' : 'open'}">累计 ${fmtInt(c.count)} 期</span></td><td class="lead">${custLink(p.customer)} <span class="muted small">累计欠款</span></td><td class="nowrap small muted">${c.first_date ? `最早 ${esc(c.first_date)}` : ''}</td><td></td><td class="num"><b>${fmtMoney(c.amount)}</b></td><td class="small ${c.overdue_count ? 'down' : 'muted'}">${c.overdue_count ? `其中逾期 ${fmtInt(c.overdue_count)} 期 ${fmtMoney(c.overdue)}` : '无逾期'}</td><td></td><td class="small muted">${elsewhere > 0 ? `另有 ${fmtInt(elsewhere)} 期不在本页` : ''}</td></tr>`;
+        return `<tr class="cgroup" title="当前筛选下该客户的累计（含其他页）"><td class="num idx muted small">∑</td><td class="nowrap gtag"><span class="tag ${c.overdue_count ? 'bad' : 'open'}">累计 ${fmtInt(c.count)} 期</span></td><td class="lead">${custLink(p.customer)} <span class="muted small">累计欠款</span></td><td class="nowrap small muted">${c.first_date ? `最早 ${esc(c.first_date)}` : ''}</td><td></td><td class="num"><b>${fmtMoney(c.amount)}</b></td><td class="small ${c.overdue_count ? 'down' : 'muted'}">${c.overdue_count ? `其中逾期 ${fmtInt(c.overdue_count)} 期 ${fmtMoney(c.overdue)}` : '无逾期'}</td><td></td><td class="small muted">${elsewhere > 0 ? `另有 ${fmtInt(elsewhere)} 期不在本页` : ''}</td></tr>`;
       };
       const sortLabel = (PLAN_SORT_OPTS.find(([k]) => k === res.sort) || [])[1] || '';
       list.innerHTML = `<p class="summary">共 <b>${fmtInt(res.total)}</b> 期，金额合计 <b>${fmtMoney(res.amount)}</b>${Object.values(byCust).some((c) => c.count > 1) ? ` <span class="muted small">· ${res.grouped ? `同一客户的各期放在一起，客户之间按“${sortLabel}”的客户汇总值排，` : ''}多期客户首行是“∑ 累计”（按当前筛选，含其他页）</span>` : ''}</p>
