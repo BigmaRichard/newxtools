@@ -1016,6 +1016,7 @@ class Query(ReportQueries):
             "status": g.get("status"), "status_text": self.lk.text("gathering", "status", g.get("status")),
             "who": self.lk.user_name(g.get("who")), "customer": self.lk.customer(g.get("cu_sn")), "order_no": g.get("co_sn"),
             "order_id": self.order_id_by_no(g.get("co_sn")), "memo": g.get("memo"), "overdue_days": max(overdue, 0),
+            "cu_key": str(g.get("cu_sn") or ""),   # 原始客户键，前台用它把同一客户的多期归到一起
         }
 
     _no_cache: Dict[str, Optional[int]] = {}
@@ -1096,10 +1097,24 @@ class Query(ReportQueries):
         ]
         key, direction = self.plan_sort()
         rows = self.rows(f"SELECT g.* FROM gathering g{where} ORDER BY {self.PLAN_SORTS[key]} {direction}, g.id LIMIT ? OFFSET ?", [*args, size, offset])
+        # 本页出现的客户，在当前筛选（含业务员）下的累计：期数、金额、其中逾期、最早计划日期。前台在该客户首次出现处插一行合并项，
+        # 同一客户分散在多页 / 按金额排序被打散时也能一眼看到累计欠款
+        cu_keys = list(dict.fromkeys(str(g.get("cu_sn")) for g in rows if g.get("cu_sn")))
+        by_customer: Dict[str, Dict[str, Any]] = {}
+        if cu_keys:
+            marks = ",".join("?" * len(cu_keys))
+            for r in self.rows(
+                "SELECT g.cu_sn, COUNT(*) n, SUM(CAST(g.money AS REAL)) a, "
+                "SUM(CASE WHEN g.status IN ('2','4') AND g.date < ? THEN CAST(g.money AS REAL) ELSE 0 END) od, "
+                "SUM(CASE WHEN g.status IN ('2','4') AND g.date < ? THEN 1 ELSE 0 END) odn, MIN(g.date) d0 "
+                f"FROM gathering g{where} AND g.cu_sn IN ({marks}) GROUP BY g.cu_sn",
+                [today, today, *args, *cu_keys],
+            ):
+                by_customer[str(r["cu_sn"])] = {"count": r["n"] or 0, "amount": money(r["a"]), "overdue": money(r["od"]), "overdue_count": r["odn"] or 0, "first_date": r["d0"]}
         return {"total": total.get("n") or 0, "amount": money(total.get("a")), "page": page, "size": size, "sort": key, "dir": direction.lower(),
                 "aging": {k: money(aging.get(k)) for k in ("not_due", "d30", "d90", "d365", "d365p")},
                 "aging_counts": {k: aging.get("n_" + k) or 0 for k in ("not_due", "d30", "d90", "d365", "d365p")}, "aging_selected": buckets,
-                "by_who": by_who, "rows": [self.plan_row(g) for g in rows]}
+                "by_who": by_who, "by_customer": by_customer, "rows": [self.plan_row(g) for g in rows]}
 
     # 账龄四档的 SQL（每档需要几个 today 参数）：≤30 天要求已过计划日期；其余按天数区间
     AGING_CLAUSES = {
